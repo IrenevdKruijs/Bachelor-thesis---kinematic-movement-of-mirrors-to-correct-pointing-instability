@@ -9,6 +9,7 @@ try:
 except pythoncom.com_error:
     pass
 
+
 ##Piezo inladen
 clr.AddReference(r"C:\Program Files\Thorlabs\Kinesis\Thorlabs.MotionControl.DeviceManagerCLI.dll")
 clr.AddReference(r"C:\Program Files\Thorlabs\Kinesis\Thorlabs.MotionControl.GenericMotorCLI.dll")
@@ -212,15 +213,14 @@ def piezomotor(new_pos_chan1,new_pos_chan2,new_pos_chan3,new_pos_chan4,steprate)
 def calibrate_mirror1_2D(amount_steps, stepsize, repeats,direction,steprate):
     
     all_shifts = []
-
-    if direction == "up":
-        piezomotor(-100, -100, 0, 0,steprate)  # backlash compensation
-        x0, y0 = piezomotor(100, 100, 0, 0,steprate)
-    else:
-        piezomotor(100, 100, 0, 0,steprate)
-        x0, y0 = piezomotor(-100, -100, 0, 0,steprate)
         
     for h in range(repeats):
+        if direction == "up":
+            piezomotor(-100, -100, 0, 0,steprate)  # backlash compensation
+            x0, y0 = piezomotor(100, 100, 0, 0,steprate)
+        else:
+            piezomotor(100, 100, 0, 0,steprate)
+            x0, y0 = piezomotor(-100, -100, 0, 0,steprate)
         print(f"Startpositie (pixels): {x0}, {y0}")
         stap = stepsize   #initialize stap for correct data savings
         shifts = []     #initialize verschuivingen to save the shifts
@@ -238,11 +238,13 @@ def calibrate_mirror1_2D(amount_steps, stepsize, repeats,direction,steprate):
                     f.write(f"{stap}\t{dx}\t{dy}\n")
             stap += stepsize if direction == 'up' else -stepsize
         all_shifts.append(shifts)
-    return all_shifts
-                    
-import numpy as np
-import matplotlib.pyplot as plt
-from scipy.stats import linregress
+        piezomotor(
+        (-(stepsize * amount_steps) if direction == "up" else stepsize * amount_steps),
+        (-(stepsize * amount_steps) if direction == "up" else stepsize * amount_steps),
+        0, 0, 500
+        )
+    return all_shifts            
+
 
 def plot_calibration(calibrations, output_file, labels=None, combine_datasets=False):
     if not calibrations:
@@ -291,11 +293,11 @@ def plot_calibration(calibrations, output_file, labels=None, combine_datasets=Fa
 
     plt.tight_layout()
     plt.savefig(output_file)
-    plt.show()
 
     # Voer twee kalibraties uit
-data1 = calibrate_mirror1_2D(2, 100,1,"up",100)
-data2 = calibrate_mirror1_2D(2,100,1,"up",500)
-#data3 = calibrate_mirror1_2D(2,100,1,"down",100)
-plot_calibration([data1,data2], output_file='calibration_up_steprate100vs500.png', labels=[f"calibration steprate 100",f"Calibration steprate 500"],combine_datasets=True)
-#plot_calibration([data1,data3],"up_vs_down_steprate_100.png",labels=["calibration up vs down"])
+data1 = calibrate_mirror1_2D(4,100,2,"up",100)
+data2 = calibrate_mirror1_2D(4,100,2,"up",500)
+data3 = calibrate_mirror1_2D(4,100,2,"down",100)
+data4 = calibrate_mirror1_2D(4,100,2,"down",500)
+plot_calibration([data3,data4],"down_steprate_100_vs_500.png",labels=["calibration steprate 100","calibration steprate 500"],combine_datasets=True)
+plot_calibration([data1,data2],"up_steprate_100_vs_500.png",labels=["calibration steprate 100","calibration steprate 500"],combine_datasets=True)
