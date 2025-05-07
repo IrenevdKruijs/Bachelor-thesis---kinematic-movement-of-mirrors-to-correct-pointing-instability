@@ -1,0 +1,289 @@
+import numpy as np
+import time
+import clr
+import matplotlib.pyplot as plt
+from scipy.stats import linregress
+import pythoncom
+try:
+    pythoncom.CoInitialize()
+except pythoncom.com_error:
+    pass
+
+##Piezo inladen
+clr.AddReference(r"C:\Program Files\Thorlabs\Kinesis\Thorlabs.MotionControl.DeviceManagerCLI.dll")
+clr.AddReference(r"C:\Program Files\Thorlabs\Kinesis\Thorlabs.MotionControl.GenericMotorCLI.dll")
+clr.AddReference(r"C:\Program Files\Thorlabs\Kinesis\Thorlabs.MotionControl.KCube.InertialMotorCLI.dll")
+from Thorlabs.MotionControl.DeviceManagerCLI import *
+from Thorlabs.MotionControl.GenericMotorCLI import *
+from Thorlabs.MotionControl.KCube.InertialMotorCLI import *
+
+## camera, info van:https://pythonforthelab.com/blog/getting-started-with-basler-cameras/ 
+# camera verbinden
+from pypylon import pylon
+
+tl_factory = pylon.TlFactory.GetInstance()
+devices = tl_factory.EnumerateDevices()
+for device in devices:
+    print(device.GetFriendlyName())
+    
+# installeren van instant camera
+tl_factory = pylon.TlFactory.GetInstance()
+camera = pylon.InstantCamera()
+camera.Attach(tl_factory.CreateFirstDevice())
+
+## functie voor het maken van een afbeelding
+def image():   # afbeelding maken
+  try:
+    if not camera.IsOpen():
+      camera.Open()
+    camera.ExposureTime.SetValue(5000)
+    if camera.IsGrabbing():
+        camera.StopGrabbing()
+    camera.StartGrabbing(1)
+    grab = camera.RetrieveResult(2000, pylon.TimeoutHandling_Return)
+    if grab.GrabSucceeded():
+            img = grab.GetArray()
+            print(f'Size of image: {img.shape}')
+            #cv2.imwrite(f'{channel}{new_pos}.tiff', img)
+            return img 
+    else: 
+        print("failed to grab image")
+        return None
+  except Exception as e:
+    print(f'Error in image capture: {e}')
+    return None
+  finally:
+    if camera.IsGrabbing():
+        camera.StopGrabbing()
+    camera.Close()
+    
+def coordinates(inputimage,pos_chan1,pos_chan2,pos_chan3,pos_chan4):
+    
+    # Bestand voor coördinaten
+    output_file = 'coordinates.txt'
+    # if os.path.exists(output_file):
+    #     os.remove(output_file)  # Verwijder oud bestand
+        
+    # Vind de maximale intensiteit
+    max_intensity = np.max(inputimage)
+    
+    # Vind alle pixels met de maximale intensiteit
+    max_pixel_locs = np.where(inputimage == max_intensity)
+    max_pixel_coords = list(zip(max_pixel_locs[0], max_pixel_locs[1]))  # Lijst van (y, x)
+    
+    if not max_pixel_coords:
+        print(f"Geen pixels met maximale intensiteit gevonden.")
+        return None
+    
+    # Filter pixels die grenzen aan andere pixels met maximale intensiteit
+    connected_pixel_coords = []
+    height, width = inputimage.shape
+    for y, x in max_pixel_coords:
+        # Controleer 8-connectiviteit (boven, onder, links, rechts, diagonaal)
+        has_neighbor = False
+        for dy in [-1, 0, 1]:
+            for dx in [-1, 0, 1]:
+                if dy == 0 and dx == 0:
+                    continue
+                ny, nx = y + dy, x + dx
+                # Controleer of de buur binnen de afbeelding ligt
+                if 0 <= ny < height and 0 <= nx < width:
+                    if inputimage[ny, nx] == max_intensity:
+                        has_neighbor = True
+                        break
+            if has_neighbor:
+                break
+        if has_neighbor:
+            connected_pixel_coords.append((y, x))
+    
+    if not connected_pixel_coords:
+        print(f"Geen verbonden pixels met maximale intensiteit gevonden.")
+        return None
+    
+    # Bereken de middelste pixel en sla dit op
+    y_coords, x_coords = zip(*connected_pixel_coords)
+    middle_y = int(np.mean(y_coords))
+    middle_x = int(np.mean(x_coords))
+    
+     # Sla coördinaten op in tekstbestand
+    identifier = f"{pos_chan1,pos_chan2,pos_chan3,pos_chan4}"
+    with open(output_file, 'a') as f:
+        f.write(f"{identifier}:{middle_x}, {middle_y}\n")
+    
+    print(f"Coördinaten opgeslagen voor {identifier}: ({middle_x}, {middle_y})")
+    return middle_x, middle_y
+
+def piezomotor(new_pos_chan1,new_pos_chan2,new_pos_chan3,new_pos_chan4,steprate):
+    """The main entry point for the application"""
+    try:
+
+        DeviceManagerCLI.BuildDeviceList()
+
+        # create new device
+        serial_no = "97251304"  #Serial number of device
+        device = KCubeInertialMotor.CreateKCubeInertialMotor(serial_no)
+
+        # Connect
+        device.Connect(serial_no)
+        time.sleep(0.25)
+
+        # Ensure that the device settings have been initialized
+        if not device.IsSettingsInitialized():
+            device.WaitForSettingsInitialized(10000)  # 10 second timeout
+            assert device.IsSettingsInitialized() is True
+
+        # Get Device Information and display description
+        device_info = device.GetDeviceInfo()
+        print(device_info.Description)
+        # Start polling and enable channel
+        device.StartPolling(250)  #250ms polling rate
+        time.sleep(0.25)
+        device.EnableDevice()
+        time.sleep(0.25)  # Wait for device to enable
+
+        # Load any configuration settings needed by the controller/stage
+        inertial_motor_config = device.GetInertialMotorConfiguration(serial_no)
+
+        # Get parameters related to homing/zeroing/moving
+        device_settings = ThorlabsInertialMotorSettings.GetSettings(inertial_motor_config)
+
+        # Step parameters for an intertial motor channel
+        chan1 = InertialMotorStatus.MotorChannels.Channel1
+        chan2 = InertialMotorStatus.MotorChannels.Channel2
+        chan3 = InertialMotorStatus.MotorChannels.Channel3
+        chan4 = InertialMotorStatus.MotorChannels.Channel4# enum chan ident
+        device_settings.Drive.Channel(chan1).StepRate = steprate
+        device_settings.Drive.Channel(chan1).StepAcceleration = 100000
+        device_settings.Drive.Channel(chan2).StepRate = steprate
+        device_settings.Drive.Channel(chan2).StepAcceleration = 100000
+        device_settings.Drive.Channel(chan3).StepRate = steprate
+        device_settings.Drive.Channel(chan3).StepAcceleration = 100000
+        device_settings.Drive.Channel(chan4).StepRate = steprate
+        device_settings.Drive.Channel(chan4).StepAcceleration = 100000
+        # Send settings to the device
+        device.SetSettings(device_settings, True, True)
+
+        #Home or Zero the device (if a motor/piezo)
+        print("Zeroing device")
+        device.SetPositionAs(chan1, 0)
+        device.SetPositionAs(chan2,0)
+        device.SetPositionAs(chan3, 0)
+        device.SetPositionAs(chan4,0)
+
+        # Move the device to a new position
+        '''
+        Methods that take an integer argument as an input move in terms of 
+        device steps (step size can be user-defined). These methods are 
+        used in open-loop operation.     
+        '''
+        channel = chan1
+        if new_pos_chan1 !=0:
+            device.MoveTo(channel, int(new_pos_chan1), 6000)  # 60 second timeout
+
+        
+        channel = chan2
+        if new_pos_chan2 !=0:
+            device.MoveTo(channel, int(new_pos_chan2), 6000) # 60 second timeout
+
+        channel = chan3
+        if new_pos_chan3 !=0:
+            device.MoveTo(channel, int(new_pos_chan3), 6000)  # 3 second timeout
+        
+        channel = chan4
+        if new_pos_chan4 !=0:
+            device.MoveTo(channel, int(new_pos_chan4), 6000)  # 3 second timeout
+        
+        img = image()
+        
+        middle_x,middle_y = coordinates(img,new_pos_chan1,new_pos_chan2,new_pos_chan3,new_pos_chan4)
+
+        time.sleep(1)
+
+        # Stop Polling and Disconnect
+        device.StopPolling()
+        device.Disconnect()
+        return middle_x,middle_y
+    except Exception as e:
+        print(e)
+ 
+    ...
+
+
+def kalibreer_spiegel1_2D(aantal_stappen, stapgrootte, herhalingen,richting,steprate):
+    
+    alle_verschuivingen = []
+
+    if richting == "up":
+        piezomotor(-100, -100, 0, 0,steprate)  # backlash compensatie
+        x0, y0 = piezomotor(100, 100, 0, 0,steprate)
+    else:
+        piezomotor(100, 100, 0, 0,steprate)
+        x0, y0 = piezomotor(-100, -100, 0, 0,steprate)
+        
+    for h in range(herhalingen):
+        print(f"Startpositie (pixels): {x0}, {y0}")
+        stap = stapgrootte    #initialize stap for correct data savings
+        verschuivingen = []     #initialize verschuivingen to save the shifts
+        for _ in range(aantal_stappen + 1):  # inclusief eindpunt
+            huidig_stap = stapgrootte if richting == 'up' else -stapgrootte
+            x,y= piezomotor(huidig_stap, huidig_stap, 0, 0,steprate)
+            dx = x - x0
+            dy = y - y0
+            verschuivingen.append((stap, dx, dy))
+            print(f"Stappen: {stap} | Δx = {dx}, Δy = {dy}")
+            # Opslaan van de verschuivingen voor deze herhaling
+            with open(f"kalibratie_spiegel1_2D_herhaling_{h+1}.txt", "w") as f:
+                f.write("Motorstap\tDeltaX_pixels\tDeltaY_pixels\n")
+                for stap, dx, dy in verschuivingen:
+                    f.write(f"{stap}\t{dx}\t{dy}\n")
+            stap += stapgrootte if richting == 'up' else -stapgrootte
+        alle_verschuivingen.append(verschuivingen)
+    return alle_verschuivingen
+                    
+def plot_calibration(calibrations,output_file,labels=None):
+    if not calibrations:
+        raise ValueError("Geen kalibratiedata opgegeven")
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
+    kleuren = plt.cm.tab10(np.linspace(0, 1, len(calibrations)))
+     # Plotten
+     
+    for i, (alle_verschuivingen, label,kleur) in enumerate(zip(calibrations, labels, kleuren)):
+        alle_stappen, alle_delta_x, alle_delta_y = [],[],[]
+        for verschuivingen in alle_verschuivingen:
+            stappen, delta_x,delta_y = zip(*verschuivingen)
+            alle_stappen.extend(stappen)
+            alle_delta_x.extend(delta_x)
+            alle_delta_y.extend(delta_y)
+        for j, verschuivingen in enumerate(alle_verschuivingen):
+            stappen, delta_x, delta_y = zip(*verschuivingen)
+            ax1.plot(stappen, delta_x, 'o', color="blue", alpha=0.6, label=f"{label} run {j+1}" if j == 0 else None)
+            ax2.plot(stappen, delta_y, 'o', color="pink", alpha=0.6, label=f"{label} run {j+1}" if j == 0 else None)
+        # Globale fit
+        slope_x, intercept_x, *_ = linregress(alle_stappen, alle_delta_x)
+        slope_y, intercept_y, *_ = linregress(alle_stappen, alle_delta_y)
+        stappen_range = np.linspace(min(alle_stappen), max(alle_stappen), 100)
+        fit_x = slope_x * stappen_range + intercept_x
+        fit_y = slope_y * stappen_range + intercept_y
+    # Plot-instellingen
+    ax1.plot(stappen_range, fit_x, '-', color=kleur, label=f"Fit {label} (slope={slope_x:.2f})" if i == 0 else None)
+    ax2.plot(stappen_range, fit_y, '-', color=kleur, label=f"Fit {label} (slope={slope_y:.2f})" if i == 0 else None)
+    ax1.set(xlabel='Motorstappen', ylabel='Δx (pixels)', title='Pixelverschuiving in X')
+    ax2.set(xlabel='Motorstappen', ylabel='Δy (pixels)', title='Pixelverschuiving in Y')
+    ax1.grid(True)
+    ax2.grid(True)
+    ax1.legend()
+    ax2.legend()
+
+    plt.tight_layout()
+    plt.savefig(output_file)
+    plt.show()
+
+    print(f"Globale slope Δx: {slope_x:.2f} px/stap | Δy: {slope_y:.2f} px/stap")
+
+
+    # Voer twee kalibraties uit
+data1 = kalibreer_spiegel1_2D(5, 100, 2, "up",100)
+
+plot_calibration([data1], output_file='calibration_up_steprate100.png', labels=[f"Kalibratie Up"])
+
