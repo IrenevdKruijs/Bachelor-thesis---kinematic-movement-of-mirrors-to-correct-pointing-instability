@@ -209,81 +209,93 @@ def piezomotor(new_pos_chan1,new_pos_chan2,new_pos_chan3,new_pos_chan4,steprate)
     ...
 
 
-def kalibreer_spiegel1_2D(aantal_stappen, stapgrootte, herhalingen,richting,steprate):
+def calibrate_mirror1_2D(amount_steps, stepsize, repeats,direction,steprate):
     
-    alle_verschuivingen = []
+    all_shifts = []
 
-    if richting == "up":
-        piezomotor(-100, -100, 0, 0,steprate)  # backlash compensatie
+    if direction == "up":
+        piezomotor(-100, -100, 0, 0,steprate)  # backlash compensation
         x0, y0 = piezomotor(100, 100, 0, 0,steprate)
     else:
         piezomotor(100, 100, 0, 0,steprate)
         x0, y0 = piezomotor(-100, -100, 0, 0,steprate)
         
-    for h in range(herhalingen):
+    for h in range(repeats):
         print(f"Startpositie (pixels): {x0}, {y0}")
-        stap = stapgrootte    #initialize stap for correct data savings
-        verschuivingen = []     #initialize verschuivingen to save the shifts
-        for _ in range(aantal_stappen + 1):  # inclusief eindpunt
-            huidig_stap = stapgrootte if richting == 'up' else -stapgrootte
+        stap = stepsize   #initialize stap for correct data savings
+        shifts = []     #initialize verschuivingen to save the shifts
+        for _ in range(amount_steps + 1):  # inclusief eindpunt
+            huidig_stap = stepsize if direction == 'up' else -stepsize
             x,y= piezomotor(huidig_stap, huidig_stap, 0, 0,steprate)
             dx = x - x0
             dy = y - y0
-            verschuivingen.append((stap, dx, dy))
+            shifts.append((stap, dx, dy))
             print(f"Stappen: {stap} | Δx = {dx}, Δy = {dy}")
             # Opslaan van de verschuivingen voor deze herhaling
             with open(f"kalibratie_spiegel1_2D_herhaling_{h+1}.txt", "w") as f:
                 f.write("Motorstap\tDeltaX_pixels\tDeltaY_pixels\n")
-                for stap, dx, dy in verschuivingen:
+                for stap, dx, dy in shifts:
                     f.write(f"{stap}\t{dx}\t{dy}\n")
-            stap += stapgrootte if richting == 'up' else -stapgrootte
-        alle_verschuivingen.append(verschuivingen)
-    return alle_verschuivingen
+            stap += stepsize if direction == 'up' else -stepsize
+        all_shifts.append(shifts)
+    return all_shifts
                     
-def plot_calibration(calibrations,output_file,labels=None):
-    if not calibrations:
-        raise ValueError("Geen kalibratiedata opgegeven")
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.stats import linregress
 
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
-    kleuren = plt.cm.tab10(np.linspace(0, 1, len(calibrations)))
-     # Plotten
-     
-    for i, (alle_verschuivingen, label,kleur) in enumerate(zip(calibrations, labels, kleuren)):
-        alle_stappen, alle_delta_x, alle_delta_y = [],[],[]
-        for verschuivingen in alle_verschuivingen:
-            stappen, delta_x,delta_y = zip(*verschuivingen)
-            alle_stappen.extend(stappen)
-            alle_delta_x.extend(delta_x)
-            alle_delta_y.extend(delta_y)
-        for j, verschuivingen in enumerate(alle_verschuivingen):
-            stappen, delta_x, delta_y = zip(*verschuivingen)
-            ax1.plot(stappen, delta_x, 'o', color="blue", alpha=0.6, label=f"{label} run {j+1}" if j == 0 else None)
-            ax2.plot(stappen, delta_y, 'o', color="pink", alpha=0.6, label=f"{label} run {j+1}" if j == 0 else None)
-        # Globale fit
-        slope_x, intercept_x, *_ = linregress(alle_stappen, alle_delta_x)
-        slope_y, intercept_y, *_ = linregress(alle_stappen, alle_delta_y)
-        stappen_range = np.linspace(min(alle_stappen), max(alle_stappen), 100)
-        fit_x = slope_x * stappen_range + intercept_x
-        fit_y = slope_y * stappen_range + intercept_y
-    # Plot-instellingen
-    ax1.plot(stappen_range, fit_x, '-', color=kleur, label=f"Fit {label} (slope={slope_x:.2f})" if i == 0 else None)
-    ax2.plot(stappen_range, fit_y, '-', color=kleur, label=f"Fit {label} (slope={slope_y:.2f})" if i == 0 else None)
-    ax1.set(xlabel='Motorstappen', ylabel='Δx (pixels)', title='Pixelverschuiving in X')
-    ax2.set(xlabel='Motorstappen', ylabel='Δy (pixels)', title='Pixelverschuiving in Y')
-    ax1.grid(True)
-    ax2.grid(True)
-    ax1.legend()
-    ax2.legend()
+def plot_calibration(calibrations, output_file, labels=None, combine_datasets=False):
+    if not calibrations:
+        raise ValueError("No calibration data provided")
+
+    if labels is None:
+        labels = [f"Data {i+1}" for i in range(len(calibrations))]
+
+    colors = plt.cm.tab10(np.linspace(0, 1, len(calibrations)))
+    fig, (ax_x, ax_y) = plt.subplots(1, 2, figsize=(12, 5))
+
+    for i, (all_runs, label, color) in enumerate(zip(calibrations, labels, colors)):
+        all_steps, all_delta_x, all_delta_y = [], [], []
+
+        for run_index, run in enumerate(all_runs):
+            steps, delta_x, delta_y = zip(*run)
+            all_steps.extend(steps)
+            all_delta_x.extend(delta_x)
+            all_delta_y.extend(delta_y)
+
+            # Always show individual dots
+            ax_x.plot(steps, delta_x, 'o', alpha=0.5, color=color,
+                      label=f"{label} Δx run {run_index + 1}" if not combine_datasets else None)
+            ax_y.plot(steps, delta_y, 'o', alpha=0.5, color=color,
+                      label=f"{label} Δy run {run_index + 1}" if not combine_datasets else None)
+
+        # Compute fit over all points of this dataset
+        slope_x, intercept_x, *_ = linregress(all_steps, all_delta_x)
+        slope_y, intercept_y, *_ = linregress(all_steps, all_delta_y)
+        step_range = np.linspace(min(all_steps), max(all_steps), 100)
+        fit_x = slope_x * step_range + intercept_x
+        fit_y = slope_y * step_range + intercept_y
+
+        # Show linear fit line
+        ax_x.plot(step_range, fit_x, '-', color=color,
+                  label=f"{label} Δx fit (y={slope_x:.2f}x+{intercept_x:.2f})")
+        ax_y.plot(step_range, fit_y, '-', color=color,
+                  label=f"{label} Δy fit (y={slope_y:.2f}x+{intercept_y:.2f})")
+
+    ax_x.set(xlabel='Motor steps', ylabel='Δx (pixels)', title='Pixel shift in X')
+    ax_y.set(xlabel='Motor steps', ylabel='Δy (pixels)', title='Pixel shift in Y')
+    ax_x.grid(True)
+    ax_y.grid(True)
+    ax_x.legend()
+    ax_y.legend()
 
     plt.tight_layout()
     plt.savefig(output_file)
     plt.show()
 
-    print(f"Globale slope Δx: {slope_x:.2f} px/stap | Δy: {slope_y:.2f} px/stap")
-
-
     # Voer twee kalibraties uit
-data1 = kalibreer_spiegel1_2D(5, 100, 2, "up",100)
-
-plot_calibration([data1], output_file='calibration_up_steprate100.png', labels=[f"Kalibratie Up"])
-
+data1 = calibrate_mirror1_2D(2, 100,1,"up",100)
+data2 = calibrate_mirror1_2D(2,100,1,"up",500)
+#data3 = calibrate_mirror1_2D(2,100,1,"down",100)
+plot_calibration([data1,data2], output_file='calibration_up_steprate100vs500.png', labels=[f"calibration steprate 100",f"Calibration steprate 500"],combine_datasets=True)
+#plot_calibration([data1,data3],"up_vs_down_steprate_100.png",labels=["calibration up vs down"])
