@@ -1,7 +1,7 @@
 import numpy as np
 import time
 import clr
-
+from pypylon import pylon
 ##Piezo inladen
 clr.AddReference(r"C:\Program Files\Thorlabs\Kinesis\Thorlabs.MotionControl.DeviceManagerCLI.dll")
 clr.AddReference(r"C:\Program Files\Thorlabs\Kinesis\Thorlabs.MotionControl.GenericMotorCLI.dll")
@@ -12,7 +12,7 @@ from Thorlabs.MotionControl.KCube.InertialMotorCLI import *
 
 ## camera, info van:https://pythonforthelab.com/blog/getting-started-with-basler-cameras/ 
 # camera verbinden
-from pypylon import pylon
+
 
 tl_factory = pylon.TlFactory.GetInstance()
 devices = tl_factory.EnumerateDevices()
@@ -186,7 +186,7 @@ def piezomotor(new_pos_chan1,new_pos_chan2,new_pos_chan3,new_pos_chan4):
         
         middle_x,middle_y = coordinates(img,new_pos_chan1,new_pos_chan2,new_pos_chan3,new_pos_chan4)
 
-        time.sleep(10)
+        time.sleep(1)
 
         # Stop Polling and Disconnect
         device.StopPolling()
