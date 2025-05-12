@@ -20,6 +20,23 @@ from Thorlabs.MotionControl.DeviceManagerCLI import *
 from Thorlabs.MotionControl.GenericMotorCLI import *
 from Thorlabs.MotionControl.KCube.InertialMotorCLI import *
 
+#This will be changed to get wavelength from system instead of manual input
+wavelength = input("Give wavelength used: ").strip()
+print(f"Input wavelength (repr): {repr(wavelength)}")
+
+try:
+    with open("last_wavelength.txt", "r") as f:
+        stored_wavelength = f.read().strip()
+        # Debug: Print the stored wavelength to inspect it
+        print(f"Stored wavelength (repr): {repr(stored_wavelength)}")
+        if stored_wavelength == wavelength:
+            print("Wavelength unchanged. Alignment complete.")
+            exit()
+except FileNotFoundError:
+    pass
+
+with open("last_wavelength.txt", "w") as f:
+    f.write(wavelength)                      
 # Constants
 x_target = 1035
 y_target = 561
