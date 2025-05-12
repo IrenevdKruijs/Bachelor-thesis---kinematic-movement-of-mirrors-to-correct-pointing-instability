@@ -24,7 +24,7 @@ def camera_setup():
     camera.Attach(tl_factory.CreateFirstDevice())
     return camera
 
-def image(camera):  
+def image(camera,exposuretime):  
     """
     This function makes an image using the camera initialized in camera_setup
     Args:
@@ -36,14 +36,13 @@ def image(camera):
     try:
         if not camera.IsOpen():
             camera.Open()
-        camera.ExposureTime.SetValue(5000)
+        camera.ExposureTime.SetValue(exposuretime)
         if camera.IsGrabbing():
             camera.StopGrabbing()
         camera.StartGrabbing(1)
         grab = camera.RetrieveResult(2000, pylon.TimeoutHandling_Return)
         if grab.GrabSucceeded():
             img = grab.GetArray()
-            print(f'Size of image: {img.shape}')
             return img 
         else: 
             print("failed to grab image")
@@ -62,15 +61,16 @@ def coordinates(inputimage, pos_chan1, pos_chan2, pos_chan3, pos_chan4):
     This function takes the image of a beam on the camera and 
     returns the coordinates (x,y) of the middle pixel of the beam
     inputimage = the image of the beam
+    kijken hoe max input image definieren en zorgen dat pixels met iets lagere intensiteit ook worden meegenomen-> anders error bij hogere golflengtes
     """
     # Bestand voor coördinaten
     output_file = 'coordinates.txt'
     
     # Vind de maximale intensiteit
-    max_intensity = np.max(inputimage)
+    max_intensity = np.max(inputimage)-100
     
     # Vind alle pixels met de maximale intensiteit
-    max_pixel_locs = np.where(inputimage == max_intensity)
+    max_pixel_locs = np.where(inputimage >= max_intensity)
     max_pixel_coords = list(zip(max_pixel_locs[0], max_pixel_locs[1]))  # Lijst van (y, x)
     
     if not max_pixel_coords:
@@ -119,6 +119,7 @@ def piezomotor(new_pos_chan1, new_pos_chan2, new_pos_chan3, new_pos_chan4,stepra
     """
     TO DO: wil ik dat de img en coordinates functie in deze functie zitten of dat die los zijn? 
             Ik denk zelf dat los beter is zodat je functie zo min mogelijk informatie nodig heeft.
+            time.sleep aanpassen voor verschillende groottes stapjes zodat je niet onnodig lang wacht
     function to move the piezomotors of the different mirrors using a Thorlabs KCube 
     input: new_pos_chan: the new positions the motors have to go to for 4 different channels
            steprate: the steprate at which the motor has to move
@@ -194,7 +195,7 @@ def piezomotor(new_pos_chan1, new_pos_chan2, new_pos_chan3, new_pos_chan4,stepra
         img = image(camera)
         middle_x, middle_y = coordinates(img, new_pos_chan1, new_pos_chan2, new_pos_chan3, new_pos_chan4)
 
-        time.sleep(1)
+        time.sleep(5)
 
         # Stop Polling and Disconnect
         device.StopPolling()
@@ -207,22 +208,18 @@ def piezomotor(new_pos_chan1, new_pos_chan2, new_pos_chan3, new_pos_chan4,stepra
     
     # Extract parameters from options with default values
 
-def calibrate_mirror1_2D(amount_steps, stepsize, repeats,direction,steprate,camera):
+def calibrate_mirror1_2D(amount_steps, stepsize, repeats,steprate,camera):
     
     all_shifts = []
         
     for h in range(repeats):
-        if direction == "up":
-            piezomotor(-100, -100, 0, 0,steprate,camera)  # backlash compensation
-            x0, y0 = piezomotor(100, 100, 0, 0,steprate,camera)
-        else:
-            piezomotor(100, 100, 0, 0,steprate,camera)
-            x0, y0 = piezomotor(-100, -100, 0, 0,steprate,camera)
+        piezomotor(-100, -100, 0, 0,steprate,camera)  # backlash compensation
+        x0, y0 = piezomotor(100, 100, 0, 0,steprate,camera)
         print(f"Startpositie (pixels): {x0}, {y0}")
         stap = stepsize   #initialize stap for correct data savings
         shifts = []     #initialize verschuivingen to save the shifts
         for _ in range(amount_steps + 1):  # inclusief eindpunt
-            huidig_stap = stepsize if direction == 'up' else -stepsize
+            huidig_stap = stepsize 
             x,y= piezomotor(huidig_stap, huidig_stap, 0, 0,steprate,camera)
             dx = x - x0
             dy = y - y0
@@ -233,11 +230,11 @@ def calibrate_mirror1_2D(amount_steps, stepsize, repeats,direction,steprate,came
                 f.write("Motorstap\tDeltaX_pixels\tDeltaY_pixels\n")
                 for stap, dx, dy in shifts:
                     f.write(f"{stap}\t{dx}\t{dy}\n")
-            stap += stepsize if direction == 'up' else -stepsize
+            stap += stepsize 
         all_shifts.append(shifts)
         piezomotor(
-        (-(stepsize * amount_steps) if direction == "up" else stepsize * amount_steps),
-        (-(stepsize * amount_steps) if direction == "up" else stepsize * amount_steps),
+        (-(stepsize * amount_steps) ),
+        (-(stepsize * amount_steps)),
         0, 0, steprate,camera
         )
     return all_shifts            
