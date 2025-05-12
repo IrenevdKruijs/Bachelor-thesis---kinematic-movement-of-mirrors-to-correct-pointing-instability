@@ -9,6 +9,11 @@ clr.AddReference(r"C:\Program Files\Thorlabs\Kinesis\Thorlabs.MotionControl.KCub
 from Thorlabs.MotionControl.DeviceManagerCLI import *
 from Thorlabs.MotionControl.GenericMotorCLI import *
 from Thorlabs.MotionControl.KCube.InertialMotorCLI import *
+#load in data for flipmirror
+clr.AddReference("C:\\Program Files\\Thorlabs\\Kinesis\\ThorLabs.MotionControl.FilterFlipperCLI.dll")
+from Thorlabs.MotionControl.FilterFlipperCLI import *
+from System import Decimal, UInt32
+
 def camera_setup():
     """
     This function initializes the camera, works for basler camera's 
@@ -24,7 +29,7 @@ def camera_setup():
     camera.Attach(tl_factory.CreateFirstDevice())
     return camera
 
-def image(camera,exposuretime):  
+def image(camera):  
     """
     This function makes an image using the camera initialized in camera_setup
     Args:
@@ -36,7 +41,7 @@ def image(camera,exposuretime):
     try:
         if not camera.IsOpen():
             camera.Open()
-        camera.ExposureTime.SetValue(exposuretime)
+        camera.ExposureTime.SetValue(5000)
         if camera.IsGrabbing():
             camera.StopGrabbing()
         camera.StartGrabbing(1)
@@ -67,7 +72,7 @@ def coordinates(inputimage, pos_chan1, pos_chan2, pos_chan3, pos_chan4):
     output_file = 'coordinates.txt'
     
     # Vind de maximale intensiteit
-    max_intensity = np.max(inputimage)-100
+    max_intensity = np.max(inputimage)-25
     
     # Vind alle pixels met de maximale intensiteit
     max_pixel_locs = np.where(inputimage >= max_intensity)
@@ -112,7 +117,7 @@ def coordinates(inputimage, pos_chan1, pos_chan2, pos_chan3, pos_chan4):
     with open(output_file, 'a') as f:
         f.write(f"{identifier}:{middle_x}, {middle_y}\n")
     
-    print(f"Coördinates saved for {identifier}: ({middle_x}, {middle_y})")
+    #print(f"Coördinates saved for {identifier}: ({middle_x}, {middle_y})")
     return middle_x, middle_y
 
 def piezomotor(new_pos_chan1, new_pos_chan2, new_pos_chan3, new_pos_chan4,steprate,camera):
@@ -194,8 +199,10 @@ def piezomotor(new_pos_chan1, new_pos_chan2, new_pos_chan3, new_pos_chan4,stepra
         
         img = image(camera)
         middle_x, middle_y = coordinates(img, new_pos_chan1, new_pos_chan2, new_pos_chan3, new_pos_chan4)
-
-        time.sleep(5)
+        if steprate <= 200:
+            time.sleep(10)
+        else: 
+            time.sleep(5)
 
         # Stop Polling and Disconnect
         device.StopPolling()
@@ -237,4 +244,99 @@ def calibrate_mirror1_2D(amount_steps, stepsize, repeats,steprate,camera):
         (-(stepsize * amount_steps)),
         0, 0, steprate,camera
         )
-    return all_shifts            
+    return all_shifts     
+
+import os
+import json
+from functions import calibrate_mirror1_2D  # Adjust if it's from a different module
+
+def get_cached_calibration(amount_steps, stepsize, repeats, steprate, camera, cache_file="calibration_cache.json"):
+    """
+    Checks if calibration data is cached. If not, performs calibration and stores result.
+    Returns calibration data as a list of (step, dx, dy) tuples.
+    """
+    if os.path.exists(cache_file):
+        with open(cache_file, 'r') as f:
+            cache = json.load(f)
+    else:
+        cache = {}
+
+    key = f"{amount_steps}_{stepsize}_{repeats}_{steprate}"
+
+    if key in cache:
+        print(f"[CACHE] Using cached calibration for steprate = {steprate}")
+        return cache[key]
+    else:
+        print(f"[CALIBRATION] Performing calibration for steprate = {steprate}")
+        calibration_data = calibrate_mirror1_2D(amount_steps, stepsize, repeats, steprate, camera)
+        
+        # Convert to JSON-safe format
+        serializable_data = [
+            [[int(s), float(dx), float(dy)] for s, dx, dy in run]
+            for run in calibration_data
+        ]
+        cache[key] = serializable_data
+
+        with open(cache_file, 'w') as f:
+            json.dump(cache, f)
+
+        return serializable_data    
+
+import clr
+import time
+
+
+def flipmirror(position):
+    # Uncomment this line if you are using a simulation
+    #SimulationManager.Instance.InitializeSimulations()
+
+    try:
+        # Build device list. 
+        DeviceManagerCLI.BuildDeviceList()
+
+        # create new device.
+        serial_no = "37006200"
+        device = FilterFlipper.CreateFilterFlipper(serial_no)
+
+        # Connect to device.
+        device.Connect(serial_no)
+
+        # Ensure that the device settings have been initialized.
+        if not device.IsSettingsInitialized():
+            device.WaitForSettingsInitialized(10000)  # 10 second timeout.
+            assert device.IsSettingsInitialized() is True
+
+        # Start polling loop and enable device.
+        device.StartPolling(250)  #250ms polling rate.
+        time.sleep(0.25)
+        device.EnableDevice()
+        time.sleep(0.25)  # Wait for device to enable.
+
+        # Get Device Information and display description.
+        device_info = device.GetDeviceInfo()
+        print(device_info.Description)
+
+        time.sleep(2)
+        new_pos = UInt32(position)  # Must be a .NET decimal.
+        print(f'Moving to {new_pos}')
+        device.SetPosition(new_pos,6000)  # 10 second timeout.
+        print("Done")
+
+
+        # Stop polling loop and disconnect device before program finishes. 
+        device.StopPolling()
+        device.Disconnect()
+
+
+    except Exception as e:
+        print(e)
+        
+
+
+
+
+
+
+ 
+
+   

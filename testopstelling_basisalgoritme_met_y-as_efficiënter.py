@@ -4,13 +4,16 @@ TO DO:
 - zorgen dat camera het liefst niet meer nodig is in image-> is heel irritant want dan moet het in iedere functie
 - kalibratie van slechte kwaliteit-> volgende keer dan wel opnieuw doen?
 - script moet worden uitgevoerd als golflengte verandert en eens in de zoveel tijd
+- als 1 vd 2 (x of y) al binnen de marge zit moet die niet meer bewegen-> verpest het vaak alleen maar
+- waar in het script moet ik corrigeren voor de slack? locatie moet worden gemeten om te weten welke kant je op moet en 
+    hoe je dus slack moet corrigeren, maar daarna moet je de positie opnieuw meten voordat je gaat bewegen
 
 """
 import time
 import clr
 from scipy.stats import linregress
 from functions import *
-from calibration_cache import get_cached_calibration
+
 
 # Initialize camera and motor libraries
 clr.AddReference(r"C:\Program Files\Thorlabs\Kinesis\Thorlabs.MotionControl.DeviceManagerCLI.dll")
@@ -21,22 +24,22 @@ from Thorlabs.MotionControl.GenericMotorCLI import *
 from Thorlabs.MotionControl.KCube.InertialMotorCLI import *
 
 #This will be changed to get wavelength from system instead of manual input
-wavelength = input("Give wavelength used: ").strip()
-print(f"Input wavelength (repr): {repr(wavelength)}")
+# wavelength = input("Give wavelength used: ").strip()
+# print(f"Input wavelength (repr): {repr(wavelength)}")
 
-try:
-    with open("last_wavelength.txt", "r") as f:
-        stored_wavelength = f.read().strip()
-        # Debug: Print the stored wavelength to inspect it
-        print(f"Stored wavelength (repr): {repr(stored_wavelength)}")
-        if stored_wavelength == wavelength:
-            print("Wavelength unchanged. Alignment complete.")
-            exit()
-except FileNotFoundError:
-    pass
+# try:
+#     with open("last_wavelength.txt", "r") as f:
+#         stored_wavelength = f.read().strip()
+#         # Debug: Print the stored wavelength to inspect it
+#         print(f"Stored wavelength (repr): {repr(stored_wavelength)}")
+#         if stored_wavelength == wavelength:
+#             print("Wavelength unchanged. Alignment complete.Do you still want to calibrate?")
+            
+# except FileNotFoundError:
+#     pass
 
-with open("last_wavelength.txt", "w") as f:
-    f.write(wavelength)                      
+# with open("last_wavelength.txt", "w") as f:
+#     f.write(wavelength)                      
 # Constants
 x_target = 1035
 y_target = 561
@@ -46,7 +49,16 @@ max_attempts = 5
 
 # Setup camera
 cam = camera_setup()
+im=image(cam)
+#make sure the flip mirror is in upright position
+flipmirror(1)
 
+# make sure the script only runs if the position of the laser is incorrect
+current_x,current_y = coordinates(im,0,0,0,0)
+if x_target - margin <= current_x <= x_target + margin and y_target - margin <= current_y <= y_target + margin:
+    print("laser already correctly aligned")
+    flipmirror(2)
+    exit()
 #if there is no calibration data yet with the stepsize, the calibration is done. Else, a saved calibration will be used
 calibration_data = get_cached_calibration(5, stepsize=100, repeats=2, steprate=steprate, camera=cam)
 
@@ -84,16 +96,18 @@ while attempt < max_attempts:
 
     if abs(dx_pixel) <= margin and abs(dy_pixel) <= margin:
         print("Success! Target reached within margin.")
+        flipmirror(2)
         break
 
     dx_motor = int(dx_pixel / slope_x) if slope_x != 0 else 0
     dy_motor = int(dy_pixel / slope_y) if slope_y != 0 else 0
 
     print(f"Moving motor: dx = {dx_motor} steps, dy = {dy_motor} steps")
-
+    #hoeft eigenlijk alleen als richting verandert 
     piezomotor(dx_motor, dy_motor, 0, 0, steprate, cam)
-    time.sleep(5)
+    time.sleep(0.1)
     attempt += 1
 
 else:
     print("Failed to reach target within margin after maximum attempts.")
+    
