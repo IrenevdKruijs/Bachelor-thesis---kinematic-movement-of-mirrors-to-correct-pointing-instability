@@ -25,8 +25,12 @@ from Thorlabs.MotionControl.GenericMotorCLI import *
 from Thorlabs.MotionControl.KCube.InertialMotorCLI import *
                      
 # Constants
-x_target = 1035
-y_target = 561
+try:
+    with open("alignment_result.txt") as f:
+        x_target, y_target = map(int, f.read().strip().split(","))
+except FileNotFoundError:
+    print("Align setup and run find_middle_after_alignment")
+    
 margin = 10
 steprate = 250
 max_attempts = 5
