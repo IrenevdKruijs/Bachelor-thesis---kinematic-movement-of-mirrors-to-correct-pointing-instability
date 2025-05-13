@@ -1,13 +1,14 @@
 """
 TO DO: 
-- hoe groot moet marge zijn?
-- zorgen dat camera het liefst niet meer nodig is in image-> is heel irritant want dan moet het in iedere functie
-- kalibratie van slechte kwaliteit-> volgende keer dan wel opnieuw doen?
-- script moet worden uitgevoerd als golflengte verandert en eens in de zoveel tijd
-- als 1 vd 2 (x of y) al binnen de marge zit moet die niet meer bewegen-> verpest het vaak alleen maar
-- waar in het script moet ik corrigeren voor de slack? locatie moet worden gemeten om te weten welke kant je op moet en 
-    hoe je dus slack moet corrigeren, maar daarna moet je de positie opnieuw meten voordat je gaat bewegen
-
+- how large should margin be?
+- Ensure that the camera is preferably no longer needed in image processing -> its very annoying because then it has to be included in every function
+- Calibration of poor quality -> should we redo it next time then?
+- The script must be executed when the wavelength changes and periodically.
+- If one of the two (x or y) is already within the margin, it should not move anymore -> it often only makes things worse.
+- Where in the script should I correct for the slack? The location must be measured to know which direction to move and thus how to 
+    correct for slack, but afterward, the position must be measured again before moving.
+    
+This function measures the pointing instability of the laser beam on a camera and realigns it by tipping/tilting a motorized mirror.
 """
 import time
 import clr
@@ -22,24 +23,7 @@ clr.AddReference(r"C:\Program Files\Thorlabs\Kinesis\Thorlabs.MotionControl.KCub
 from Thorlabs.MotionControl.DeviceManagerCLI import *
 from Thorlabs.MotionControl.GenericMotorCLI import *
 from Thorlabs.MotionControl.KCube.InertialMotorCLI import *
-
-#This will be changed to get wavelength from system instead of manual input
-# wavelength = input("Give wavelength used: ").strip()
-# print(f"Input wavelength (repr): {repr(wavelength)}")
-
-# try:
-#     with open("last_wavelength.txt", "r") as f:
-#         stored_wavelength = f.read().strip()
-#         # Debug: Print the stored wavelength to inspect it
-#         print(f"Stored wavelength (repr): {repr(stored_wavelength)}")
-#         if stored_wavelength == wavelength:
-#             print("Wavelength unchanged. Alignment complete.Do you still want to calibrate?")
-            
-# except FileNotFoundError:
-#     pass
-
-# with open("last_wavelength.txt", "w") as f:
-#     f.write(wavelength)                      
+                     
 # Constants
 x_target = 1035
 y_target = 561
@@ -54,7 +38,7 @@ im=image(cam)
 flipmirror(1)
 
 # make sure the script only runs if the position of the laser is incorrect
-current_x,current_y = coordinates(im,0,0,0,0)
+current_x,current_y = coordinates(im)
 if x_target - margin <= current_x <= x_target + margin and y_target - margin <= current_y <= y_target + margin:
     print("laser already correctly aligned")
     flipmirror(2)
@@ -65,7 +49,9 @@ calibration_data = get_cached_calibration(5, stepsize=100, repeats=2, steprate=s
 # Extract calibration data
 all_steps, all_delta_x, all_delta_y = [], [], []
 for run in calibration_data:
-    steps, delta_x, delta_y = zip(*run)
+    steps = [item[0] for item in run]
+    delta_x = [item[1] for item in run]
+    delta_y = [item[2] for item in run]
     all_steps.extend(steps)
     all_delta_x.extend(delta_x)
     all_delta_y.extend(delta_y)
@@ -84,7 +70,7 @@ if r_value_x**2 < 0.8 or r_value_y**2 < 0.8:
 attempt = 0
 while attempt < max_attempts:
     im = image(cam)
-    middle_x, middle_y = coordinates(im, 0, 0, 0, 0)
+    middle_x, middle_y = coordinates(im)
     if middle_x is None or middle_y is None:
         print("Error: Could not determine beam center.")
         break
@@ -103,7 +89,6 @@ while attempt < max_attempts:
     dy_motor = int(dy_pixel / slope_y) if slope_y != 0 else 0
 
     print(f"Moving motor: dx = {dx_motor} steps, dy = {dy_motor} steps")
-    #hoeft eigenlijk alleen als richting verandert 
     piezomotor(dx_motor, dy_motor, 0, 0, steprate, cam)
     time.sleep(0.1)
     attempt += 1

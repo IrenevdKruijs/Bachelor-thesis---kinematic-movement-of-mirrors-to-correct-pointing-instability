@@ -2,14 +2,14 @@ from pypylon import pylon
 import numpy as np
 import time
 import clr
-##Piezo inladen
+#Load piezo
 clr.AddReference(r"C:\Program Files\Thorlabs\Kinesis\Thorlabs.MotionControl.DeviceManagerCLI.dll")
 clr.AddReference(r"C:\Program Files\Thorlabs\Kinesis\Thorlabs.MotionControl.GenericMotorCLI.dll")
 clr.AddReference(r"C:\Program Files\Thorlabs\Kinesis\Thorlabs.MotionControl.KCube.InertialMotorCLI.dll")
 from Thorlabs.MotionControl.DeviceManagerCLI import *
 from Thorlabs.MotionControl.GenericMotorCLI import *
 from Thorlabs.MotionControl.KCube.InertialMotorCLI import *
-#load in data for flipmirror
+#Load data for flipmirror
 clr.AddReference("C:\\Program Files\\Thorlabs\\Kinesis\\ThorLabs.MotionControl.FilterFlipperCLI.dll")
 from Thorlabs.MotionControl.FilterFlipperCLI import *
 from System import Decimal, UInt32
@@ -23,7 +23,7 @@ def camera_setup():
     for device in devices:
         print(device.GetFriendlyName())
         
-    # installeren van instant camera
+    # install instant camera
     tl_factory = pylon.TlFactory.GetInstance()
     camera = pylon.InstantCamera()
     camera.Attach(tl_factory.CreateFirstDevice())
@@ -60,40 +60,39 @@ def image(camera):
             camera.StopGrabbing()
         camera.Close()
 
-def coordinates(inputimage, pos_chan1, pos_chan2, pos_chan3, pos_chan4):
+def coordinates(inputimage):
     """
-    TO DO: kunnen de posities eruit als ik de identifiers toch niet gebruik om de data op te slaan?
+    TO DO: 
+    - Investigate how to define the maximum input image and ensure that pixels with slightly lower intensity are also included -> otherwise, errors occur at higher wavelengths.
+    
     This function takes the image of a beam on the camera and 
     returns the coordinates (x,y) of the middle pixel of the beam
     inputimage = the image of the beam
     kijken hoe max input image definieren en zorgen dat pixels met iets lagere intensiteit ook worden meegenomen-> anders error bij hogere golflengtes
     """
-    # Bestand voor coördinaten
-    output_file = 'coordinates.txt'
-    
-    # Vind de maximale intensiteit
+    # Find max intensity and add margin for pixels that do not have the highest intensity but just below that
     max_intensity = np.max(inputimage)-25
     
-    # Vind alle pixels met de maximale intensiteit
+    # Find all pixels with max intensity
     max_pixel_locs = np.where(inputimage >= max_intensity)
-    max_pixel_coords = list(zip(max_pixel_locs[0], max_pixel_locs[1]))  # Lijst van (y, x)
+    max_pixel_coords = list(zip(max_pixel_locs[0], max_pixel_locs[1]))  # List of (y, x)
     
     if not max_pixel_coords:
-        print(f"Geen pixels met maximale intensiteit gevonden.")
+        print(f"No pixels with maximum intensity found.")
         return None
     
-    # Filter pixels die grenzen aan andere pixels met maximale intensiteit
+    # Filter pixels that border other pixels with max intensity
     connected_pixel_coords = []
     height, width = inputimage.shape
     for y, x in max_pixel_coords:
-        # Controleer 8-connectiviteit (boven, onder, links, rechts, diagonaal)
+        # Check 8-connectivity
         has_neighbor = False
         for dy in [-1, 0, 1]:
             for dx in [-1, 0, 1]:
                 if dy == 0 and dx == 0:
                     continue
                 ny, nx = y + dy, x + dx
-                # Controleer of de buur binnen de afbeelding ligt
+                # check if the neighbour is inside the image
                 if 0 <= ny < height and 0 <= nx < width:
                     if inputimage[ny, nx] == max_intensity:
                         has_neighbor = True
@@ -107,28 +106,26 @@ def coordinates(inputimage, pos_chan1, pos_chan2, pos_chan3, pos_chan4):
         print(f"Geen verbonden pixels met maximale intensiteit gevonden.")
         return None
     
-    # Bereken de middelste pixel en sla dit op
+    # calculate middle pixel and save
     y_coords, x_coords = zip(*connected_pixel_coords)
     middle_y = int(np.mean(y_coords))
     middle_x = int(np.mean(x_coords))
     
-    # Sla coördinaten op in tekstbestand
-    identifier = f"{pos_chan1,pos_chan2,pos_chan3,pos_chan4}"
-    with open(output_file, 'a') as f:
-        f.write(f"{identifier}:{middle_x}, {middle_y}\n")
-    
-    #print(f"Coördinates saved for {identifier}: ({middle_x}, {middle_y})")
     return middle_x, middle_y
 
 def piezomotor(new_pos_chan1, new_pos_chan2, new_pos_chan3, new_pos_chan4,steprate,camera):
     """
-    TO DO: wil ik dat de img en coordinates functie in deze functie zitten of dat die los zijn? 
-            Ik denk zelf dat los beter is zodat je functie zo min mogelijk informatie nodig heeft.
-            time.sleep aanpassen voor verschillende groottes stapjes zodat je niet onnodig lang wacht
+    TO DO: 
+    - Do I want the image and coordinates function to be included in this function or to be separate? 
+        I think separate is better so that the function requires as little information as possible.
+    - adjust time.sleep for different step sizes so you are not waiting unneceserry long
+    
     function to move the piezomotors of the different mirrors using a Thorlabs KCube 
     input: new_pos_chan: the new positions the motors have to go to for 4 different channels
            steprate: the steprate at which the motor has to move
-    output: 
+           camera: the camera that is used for taking the picture
+    output: middle_x, middle_y: the new coordinates of the middle of the laser beam after movement
+
     """
     try:
         DeviceManagerCLI.BuildDeviceList()
@@ -198,7 +195,7 @@ def piezomotor(new_pos_chan1, new_pos_chan2, new_pos_chan3, new_pos_chan4,stepra
             device.MoveTo(channel, int(new_pos_chan4), 6000)  # 3 second timeout
         
         img = image(camera)
-        middle_x, middle_y = coordinates(img, new_pos_chan1, new_pos_chan2, new_pos_chan3, new_pos_chan4)
+        middle_x, middle_y = coordinates(img)
         if steprate <= 200:
             time.sleep(10)
         else: 
