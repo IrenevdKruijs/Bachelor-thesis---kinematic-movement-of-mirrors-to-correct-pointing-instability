@@ -10,7 +10,7 @@ from functions import *
 
 cam=camera_controller()
 img = cam.capture_image()
-target_x, target_y = coordinates(img)
+target_x, target_y = localize_beam_center(img)
 print(f"target pixel is ({target_x},{target_y})")
 with open("alignment_result.txt", "w") as f:
     f.write(f"{target_x},{target_y}")
