@@ -23,7 +23,8 @@ clr.AddReference(r"C:\Program Files\Thorlabs\Kinesis\Thorlabs.MotionControl.KCub
 from Thorlabs.MotionControl.DeviceManagerCLI import *
 from Thorlabs.MotionControl.GenericMotorCLI import *
 from Thorlabs.MotionControl.KCube.InertialMotorCLI import *
-                     
+
+motor = PiezoMotor()
 # Constants
 try:
     with open("alignment_result.txt") as f:
@@ -93,10 +94,10 @@ while attempt < max_attempts:
     dy_motor = int(dy_pixel / slope_y) if slope_y != 0 else 0
 
     print(f"Moving motor: dx = {dx_motor} steps, dy = {dy_motor} steps")
-    piezomotor(dx_motor, dy_motor, 0, 0, steprate)
-    time.sleep(0.1)
+    motor.move_steps(dx_motor, dy_motor, 0, 0)
     attempt += 1
 
 else:
     print("Failed to reach target within margin after maximum attempts.")
     
+motor.shutdown()

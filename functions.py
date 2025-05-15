@@ -112,101 +112,98 @@ def localize_beam_center(inputimage):
     
     return middle_x, middle_y
 
-def piezomotor(new_pos_chan1, new_pos_chan2, new_pos_chan3, new_pos_chan4,steprate):
-    """
-    TO DO: 
-    - Do I want the image and coordinates function to be included in this function or to be separate? 
-        I think separate is better so that the function requires as little information as possible.
-    - adjust time.sleep to the minimum value + small margin to speed up the code
-    
-    function to move the piezomotors of the different mirrors using a Thorlabs KCube 
-    input: new_pos_chan: the new positions the motors have to go to for 4 different channels
-           steprate: the steprate at which the motor has to move
-           camera: the camera that is used for taking the picture
-    output: middle_x, middle_y: the new coordinates of the middle of the laser beam after movement
+class PiezoMotor:
+    def __init__(self,serial_number,steprate):
+        """
+        TO DO: 
+        - Do I want the image and coordinates function to be included in this function or to be separate? 
+            I think separate is better so that the function requires as little information as possible.
+        - adjust time.sleep to the minimum value + small margin to speed up the code
+        
+        function to move the piezomotors of the different mirrors using a Thorlabs KCube 
+        input: new_pos_chan: the new positions the motors have to go to for 4 different channels
+            steprate: the steprate at which the motor has to move
+            camera: the camera that is used for taking the picture
+        output: middle_x, middle_y: the new coordinates of the middle of the laser beam after movement
 
-    """
-    try:
+        """
+
         DeviceManagerCLI.BuildDeviceList()
 
         # create new device
-        serial_no = "97251304"  # Serial number of device
-        device = KCubeInertialMotor.CreateKCubeInertialMotor(serial_no)
-
+        self.serial_number = str(serial_number)  # Serial number of device
+        self.device = KCubeInertialMotor.CreateKCubeInertialMotor(self.serial_number)
+        self.steprate = steprate
         # Connect
-        device.Connect(serial_no)
+        self.device.Connect(self.serial_number)
         time.sleep(0.25)
 
-        # Ensure that the device settings have been initialized
-        if not device.IsSettingsInitialized():
-            device.WaitForSettingsInitialized(10000)  # 10 second timeout
-            assert device.IsSettingsInitialized() is True
+            # Ensure that the device settings have been initialized
+        if not self.device.IsSettingsInitialized():
+            self.device.WaitForSettingsInitialized(10000)  # 10 second timeout
+            assert self.device.IsSettingsInitialized() is True
 
-        # Get Device Information and display description
-        device_info = device.GetDeviceInfo()
-        print(device_info.Description)
+        print(f"Connected to: {self.device.GetDeviceInfo().Description}")
+        
         # Start polling and enable channel
-        device.StartPolling(250)  # 250ms polling rate
+        self.device.StartPolling(250)  # 250ms polling rate
         time.sleep(0.25)
-        device.EnableDevice()
+        self.device.EnableDevice()
         time.sleep(0.25)  # Wait for device to enable
 
-        # Load any configuration settings needed by the controller/stage
-        inertial_motor_config = device.GetInertialMotorConfiguration(serial_no)
 
-        # Get parameters related to homing/zeroing/moving
-        device_settings = ThorlabsInertialMotorSettings.GetSettings(inertial_motor_config)
+            # Load any configuration settings needed by the controller/stage
+        config = self.device.GetInertialMotorConfiguration(self.serial_number)
+        settings = ThorlabsInertialMotorSettings.GetSettings(config)
 
-        # Step parameters for an inertial motor channel
-        chan1 = InertialMotorStatus.MotorChannels.Channel1
-        chan2 = InertialMotorStatus.MotorChannels.Channel2
-        chan3 = InertialMotorStatus.MotorChannels.Channel3
-        chan4 = InertialMotorStatus.MotorChannels.Channel4
-        device_settings.Drive.Channel(chan1).StepRate = steprate
-        device_settings.Drive.Channel(chan1).StepAcceleration = 100000
-        device_settings.Drive.Channel(chan2).StepRate = steprate
-        device_settings.Drive.Channel(chan2).StepAcceleration = 100000
-        # Send settings to the device
-        device.SetSettings(device_settings, True, True)
+            # Get parameters related to homing/zeroing/moving
+            # Step parameters for an inertial motor channel
+        self.chan1 = InertialMotorStatus.MotorChannels.Channel1
+        self.chan2 = InertialMotorStatus.MotorChannels.Channel2
+        self.chan3 = InertialMotorStatus.MotorChannels.Channel3
+        self.chan4 = InertialMotorStatus.MotorChannels.Channel4
+        
+        for chan in [self.chan1, self.chan2, self.chan3, self.chan4]:
+            settings.Drive.Channel(chan).StepRate = self.steprate
+            settings.Drive.Channel(chan).StepAcceleration = 100000
+            # Send settings to the device
+        self.device.SetSettings(settings, True, True)
 
-        # Home or Zero the device (if a motor/piezo)
+            # Home or Zero the device (if a motor/piezo)
         print("Zeroing device")
-        device.SetPositionAs(chan1, 0)
-        device.SetPositionAs(chan2, 0)
-        device.SetPositionAs(chan3, 0)
-        device.SetPositionAs(chan4, 0)
+        self.device.SetPositionAs(self.chan1, 0)
+        self.device.SetPositionAs(self.chan2, 0)
+        self.device.SetPositionAs(self.chan3, 0)
+        self.device.SetPositionAs(self.chan4, 0)
+            
+    def move_steps(self,new_pos_chan1,new_pos_chan2,new_pos_chan3,new_pos_chan4):
 
-        # Move the device to a new position
-        channel = chan1
-        if new_pos_chan1 != 0:
-            device.MoveTo(channel, int(new_pos_chan1), 6000)  # 60 second timeout
-        
-        channel = chan2
-        if new_pos_chan2 != 0:
-            device.MoveTo(channel, int(new_pos_chan2), 6000)  # 60 second timeout
+            # Move the device to a new position
+            channel = self.chan1
+            if new_pos_chan1 != 0:
+                self.device.MoveTo(channel, int(new_pos_chan1), 6000)  # 60 second timeout
+            
+            channel = self.chan2
+            if new_pos_chan2 != 0:
+                self.device.MoveTo(channel, int(new_pos_chan2), 6000)  # 60 second timeout
 
-        channel = chan3
-        if new_pos_chan3 != 0:
-            device.MoveTo(channel, int(new_pos_chan3), 6000)  # 3 second timeout
-        
-        channel = chan4
-        if new_pos_chan4 != 0:
-            device.MoveTo(channel, int(new_pos_chan4), 6000)  # 3 second timeout
-        
-        if steprate <= 200: #adjusts waiting time to steprate
-            time.sleep(10)
-        else: 
-            time.sleep(5)
-
-        # Stop Polling and Disconnect
-        device.StopPolling()
-        device.Disconnect()
-    except Exception as e:
-        print(e)
-        return None, None
-    
-    
-    # Extract parameters from options with default values
+            channel = self.chan3
+            if new_pos_chan3 != 0:
+                self.device.MoveTo(channel, int(new_pos_chan3), 6000)  # 3 second timeout
+            
+            channel = self.chan4
+            if new_pos_chan4 != 0:
+                self.device.MoveTo(channel, int(new_pos_chan4), 6000)  # 3 second timeout
+            
+            if self.steprate <= 200: #adjusts waiting time to steprate
+                time.sleep(10)
+            else: 
+                time.sleep(5)
+    def shutdown(self):
+            # Stop Polling and Disconnect
+            self.device.StopPolling()
+            self.device.Disconnect()
+        # Extract parameters from options with default values
 
 def calibrate_mirror1_2D(amount_steps, stepsize, repeats,steprate):
     
