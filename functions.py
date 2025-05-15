@@ -60,7 +60,7 @@ class camera_controller:
                 self.camera.StopGrabbing()
             self.camera.Close()
 
-def coordinates(inputimage):
+def localize_beam_center(inputimage):
     """
     TO DO: 
     - Investigate how to define the maximum input image and ensure that pixels with slightly lower intensity are also included -> otherwise, errors occur at higher wavelengths.
@@ -77,8 +77,8 @@ def coordinates(inputimage):
     max_pixel_coords = list(zip(max_pixel_locs[0], max_pixel_locs[1]))  # List of (y, x)
     
     if not max_pixel_coords:
-        print(f"No pixels with maximum intensity found.")
-        return None
+        raise Exception(f"No pixels with maximum intensity found.")
+
     
     # Filter pixels that border other pixels with max intensity
     connected_pixel_coords = []
@@ -103,7 +103,7 @@ def coordinates(inputimage):
     
     if not connected_pixel_coords:
         print(f"Geen verbonden pixels met maximale intensiteit gevonden.")
-        return None
+        raise  Exception("No connected pixels with max intensity found")  
     
     # calculate middle pixel and save
     y_coords, x_coords = zip(*connected_pixel_coords)

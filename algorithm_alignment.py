@@ -42,7 +42,7 @@ im = cam.capture_image
 flipmirror(1)
 
 # make sure the script only runs if the position of the laser is incorrect
-current_x,current_y = coordinates(im)
+current_x,current_y = localize_beam_center(im)
 if x_target - margin <= current_x <= x_target + margin and y_target - margin <= current_y <= y_target + margin:
     print("laser already correctly aligned")
     flipmirror(2)
@@ -74,7 +74,7 @@ if r_value_x**2 < 0.8 or r_value_y**2 < 0.8:
 attempt = 0
 while attempt < max_attempts:
     im = cam.capture_image()
-    middle_x, middle_y = coordinates(im)
+    middle_x, middle_y = localize_beam_center(im)
     if middle_x is None or middle_y is None:
         print("Error: Could not determine beam center.")
         break
