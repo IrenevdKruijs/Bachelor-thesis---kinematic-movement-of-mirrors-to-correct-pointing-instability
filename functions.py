@@ -2,6 +2,8 @@ from pypylon import pylon
 import numpy as np
 import time
 import clr
+import os
+import json
 #Load piezo
 clr.AddReference(r"C:\Program Files\Thorlabs\Kinesis\Thorlabs.MotionControl.DeviceManagerCLI.dll")
 clr.AddReference(r"C:\Program Files\Thorlabs\Kinesis\Thorlabs.MotionControl.GenericMotorCLI.dll")
@@ -16,7 +18,7 @@ from System import Decimal, UInt32
 
 def camera_setup():
     """
-    This function initializes the camera, works for basler camera's 
+    This function initializes the camera, works for basler cameras 
     """
     tl_factory = pylon.TlFactory.GetInstance()
     devices = tl_factory.EnumerateDevices()
@@ -68,7 +70,6 @@ def coordinates(inputimage):
     This function takes the image of a beam on the camera and 
     returns the coordinates (x,y) of the middle pixel of the beam
     inputimage = the image of the beam
-    kijken hoe max input image definieren en zorgen dat pixels met iets lagere intensiteit ook worden meegenomen-> anders error bij hogere golflengtes
     """
     # Find max intensity and add margin for pixels that do not have the highest intensity but just below that
     max_intensity = np.max(inputimage)-25
@@ -94,7 +95,7 @@ def coordinates(inputimage):
                 ny, nx = y + dy, x + dx
                 # check if the neighbour is inside the image
                 if 0 <= ny < height and 0 <= nx < width:
-                    if inputimage[ny, nx] == max_intensity:
+                    if inputimage[ny, nx] >= max_intensity:
                         has_neighbor = True
                         break
             if has_neighbor:
@@ -118,7 +119,7 @@ def piezomotor(new_pos_chan1, new_pos_chan2, new_pos_chan3, new_pos_chan4,stepra
     TO DO: 
     - Do I want the image and coordinates function to be included in this function or to be separate? 
         I think separate is better so that the function requires as little information as possible.
-    - adjust time.sleep for different step sizes so you are not waiting unneceserry long
+    - adjust time.sleep to the minimum value + small margin to speed up the code
     
     function to move the piezomotors of the different mirrors using a Thorlabs KCube 
     input: new_pos_chan: the new positions the motors have to go to for 4 different channels
@@ -196,7 +197,7 @@ def piezomotor(new_pos_chan1, new_pos_chan2, new_pos_chan3, new_pos_chan4,stepra
         
         img = image(camera)
         middle_x, middle_y = coordinates(img)
-        if steprate <= 200:
+        if steprate <= 200: #adjusts waiting time to steprate
             time.sleep(10)
         else: 
             time.sleep(5)
@@ -221,15 +222,15 @@ def calibrate_mirror1_2D(amount_steps, stepsize, repeats,steprate,camera):
         x0, y0 = piezomotor(100, 100, 0, 0,steprate,camera)
         print(f"Startpositie (pixels): {x0}, {y0}")
         stap = stepsize   #initialize stap for correct data savings
-        shifts = []     #initialize verschuivingen to save the shifts
-        for _ in range(amount_steps + 1):  # inclusief eindpunt
+        shifts = []     #initialize shifts to save the shifts
+        for _ in range(amount_steps + 1):  # endpoint included
             huidig_stap = stepsize 
             x,y= piezomotor(huidig_stap, huidig_stap, 0, 0,steprate,camera)
             dx = x - x0
             dy = y - y0
             shifts.append((stap, dx, dy))
             print(f"Stappen: {stap} | Δx = {dx}, Δy = {dy}")
-            # Opslaan van de verschuivingen voor deze herhaling
+            # Save shifts of this repeat
             with open(f"kalibratie_spiegel1_2D_herhaling_{h+1}.txt", "w") as f:
                 f.write("Motorstap\tDeltaX_pixels\tDeltaY_pixels\n")
                 for stap, dx, dy in shifts:
@@ -243,9 +244,7 @@ def calibrate_mirror1_2D(amount_steps, stepsize, repeats,steprate,camera):
         )
     return all_shifts     
 
-import os
-import json
-from functions import calibrate_mirror1_2D  # Adjust if it's from a different module
+
 
 def get_cached_calibration(amount_steps, stepsize, repeats, steprate, camera, cache_file="calibration_cache.json"):
     """
