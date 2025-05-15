@@ -16,46 +16,49 @@ clr.AddReference("C:\\Program Files\\Thorlabs\\Kinesis\\ThorLabs.MotionControl.F
 from Thorlabs.MotionControl.FilterFlipperCLI import *
 from System import Decimal, UInt32
 
-def camera_setup():
+class camera_controller:
     """
     This function initializes the camera, works for basler cameras 
     """
-    tl_factory = pylon.TlFactory.GetInstance()
-    devices = tl_factory.EnumerateDevices()
-    for device in devices:
-        print(device.GetFriendlyName())
+    def __init__(self,exposuretime):
+        tl_factory = pylon.TlFactory.GetInstance()
+        devices = tl_factory.EnumerateDevices()
+        if not devices:
+            raise Exception("No Basler cameras found")
+        for device in devices:
+            print(device.GetFriendlyName())
+            
+        # install instant camera
+       
+        self.camera = pylon.InstantCamera()
+        self.camera.Attach(tl_factory.CreateFirstDevice())
+        self.camera.ExposureTime.SetValue(exposuretime)
         
-    # install instant camera
-    tl_factory = pylon.TlFactory.GetInstance()
-    camera = pylon.InstantCamera()
-    camera.Attach(tl_factory.CreateFirstDevice())
-    return camera
 
-def image(camera):  
-    """
-    This function makes an image using the camera initialized in camera_setup
-    Args:
-        camera: The input the function needs is which camera should be used, is the output of camera_setup
+    def capture_image(self):  
+        """
+        This function makes an image using the camera initialized in camera_setup
+        Args:
+            camera: The input the function needs is which camera should be used, is the output of camera_setup
 
-    Returns:
-        image: the function returns the image with one frame 
-    """
-    try:
-        if not camera.IsOpen():
-            camera.Open()
-        camera.ExposureTime.SetValue(5000)
-        if camera.IsGrabbing():
-            camera.StopGrabbing()
-        camera.StartGrabbing(1)
-        grab = camera.RetrieveResult(2000, pylon.TimeoutHandling_Return)
-        if not grab.GrabSucceeded():
-            raise Exception("failed to grab image")
-        img = grab.GetArray()
-        return img 
-    finally:
-        if camera.IsGrabbing():
-            camera.StopGrabbing()
-        camera.Close()
+        Returns:
+            image: the function returns the image with one frame 
+        """
+        try:
+            if not self.camera.IsOpen():
+                self.camera.Open()
+            if self.camera.IsGrabbing():
+                self.camera.StopGrabbing()
+            self.camera.StartGrabbing(1)
+            grab = self.camera.RetrieveResult(2000, pylon.TimeoutHandling_Return)
+            if not grab.GrabSucceeded():
+                raise Exception("failed to grab image")
+            img = grab.GetArray()
+            return img 
+        finally:
+            if self.camera.IsGrabbing():
+                self.camera.StopGrabbing()
+            self.camera.Close()
 
 def coordinates(inputimage):
     """
@@ -109,7 +112,7 @@ def coordinates(inputimage):
     
     return middle_x, middle_y
 
-def piezomotor(new_pos_chan1, new_pos_chan2, new_pos_chan3, new_pos_chan4,steprate,camera):
+def piezomotor(new_pos_chan1, new_pos_chan2, new_pos_chan3, new_pos_chan4,steprate):
     """
     TO DO: 
     - Do I want the image and coordinates function to be included in this function or to be separate? 
@@ -190,8 +193,6 @@ def piezomotor(new_pos_chan1, new_pos_chan2, new_pos_chan3, new_pos_chan4,stepra
         if new_pos_chan4 != 0:
             device.MoveTo(channel, int(new_pos_chan4), 6000)  # 3 second timeout
         
-        img = image(camera)
-        middle_x, middle_y = coordinates(img)
         if steprate <= 200: #adjusts waiting time to steprate
             time.sleep(10)
         else: 
@@ -200,7 +201,6 @@ def piezomotor(new_pos_chan1, new_pos_chan2, new_pos_chan3, new_pos_chan4,stepra
         # Stop Polling and Disconnect
         device.StopPolling()
         device.Disconnect()
-        return middle_x, middle_y
     except Exception as e:
         print(e)
         return None, None
@@ -208,19 +208,19 @@ def piezomotor(new_pos_chan1, new_pos_chan2, new_pos_chan3, new_pos_chan4,stepra
     
     # Extract parameters from options with default values
 
-def calibrate_mirror1_2D(amount_steps, stepsize, repeats,steprate,camera):
+def calibrate_mirror1_2D(amount_steps, stepsize, repeats,steprate):
     
     all_shifts = []
         
     for h in range(repeats):
-        piezomotor(-100, -100, 0, 0,steprate,camera)  # backlash compensation
-        x0, y0 = piezomotor(100, 100, 0, 0,steprate,camera)
+        piezomotor(-100, -100, 0, 0,steprate)  # backlash compensation
+        x0, y0 = piezomotor(100, 100, 0, 0,steprate)
         print(f"Startpositie (pixels): {x0}, {y0}")
         stap = stepsize   #initialize stap for correct data savings
         shifts = []     #initialize shifts to save the shifts
         for _ in range(amount_steps + 1):  # endpoint included
             huidig_stap = stepsize 
-            x,y= piezomotor(huidig_stap, huidig_stap, 0, 0,steprate,camera)
+            x,y= piezomotor(huidig_stap, huidig_stap, 0, 0,steprate)
             dx = x - x0
             dy = y - y0
             shifts.append((stap, dx, dy))
@@ -235,13 +235,13 @@ def calibrate_mirror1_2D(amount_steps, stepsize, repeats,steprate,camera):
         piezomotor(
         (-(stepsize * amount_steps) ),
         (-(stepsize * amount_steps)),
-        0, 0, steprate,camera
+        0, 0, steprate
         )
     return all_shifts     
 
 
 
-def get_cached_calibration(amount_steps, stepsize, repeats, steprate, camera, cache_file="calibration_cache.json"):
+def get_cached_calibration(amount_steps, stepsize, repeats, steprate, cache_file="calibration_cache.json"):
     """
     Checks if calibration data is cached. If not, performs calibration and stores result.
     Returns calibration data as a list of (step, dx, dy) tuples.
@@ -259,7 +259,7 @@ def get_cached_calibration(amount_steps, stepsize, repeats, steprate, camera, ca
         return cache[key]
     else:
         print(f"[CALIBRATION] Performing calibration for steprate = {steprate}")
-        calibration_data = calibrate_mirror1_2D(amount_steps, stepsize, repeats, steprate, camera)
+        calibration_data = calibrate_mirror1_2D(amount_steps, stepsize, repeats, steprate)
         
         # Convert to JSON-safe format
         serializable_data = [

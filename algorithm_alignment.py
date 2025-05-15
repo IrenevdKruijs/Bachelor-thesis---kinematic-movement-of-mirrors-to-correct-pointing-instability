@@ -36,8 +36,8 @@ steprate = 250
 max_attempts = 5
 
 # Setup camera
-cam = camera_setup()
-im=image(cam)
+cam = camera_controller
+im = cam.capture_image
 #make sure the flip mirror is in upright position
 flipmirror(1)
 
@@ -48,7 +48,7 @@ if x_target - margin <= current_x <= x_target + margin and y_target - margin <= 
     flipmirror(2)
     exit()
 #if there is no calibration data yet with the stepsize, the calibration is done. Else, a saved calibration will be used
-calibration_data = get_cached_calibration(5, stepsize=100, repeats=2, steprate=steprate, camera=cam)
+calibration_data = get_cached_calibration(5, stepsize=100, repeats=2, steprate=steprate)
 
 # Extract calibration data
 all_steps, all_delta_x, all_delta_y = [], [], []
@@ -73,7 +73,7 @@ if r_value_x**2 < 0.8 or r_value_y**2 < 0.8:
 # Alignment loop
 attempt = 0
 while attempt < max_attempts:
-    im = image(cam)
+    im = cam.capture_image()
     middle_x, middle_y = coordinates(im)
     if middle_x is None or middle_y is None:
         print("Error: Could not determine beam center.")
@@ -93,7 +93,7 @@ while attempt < max_attempts:
     dy_motor = int(dy_pixel / slope_y) if slope_y != 0 else 0
 
     print(f"Moving motor: dx = {dx_motor} steps, dy = {dy_motor} steps")
-    piezomotor(dx_motor, dy_motor, 0, 0, steprate, cam)
+    piezomotor(dx_motor, dy_motor, 0, 0, steprate)
     time.sleep(0.1)
     attempt += 1
 

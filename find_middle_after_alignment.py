@@ -8,9 +8,9 @@ This script finds the middle of the beam and displays those coordinates. This sc
 
 from functions import *
 
-camera=camera_setup()
-img = image(camera)
-target_x, target_y = coordinates(img,0,0,0,0)
+cam=camera_controller()
+img = cam.capture_image()
+target_x, target_y = coordinates(img)
 print(f"target pixel is ({target_x},{target_y})")
 with open("alignment_result.txt", "w") as f:
     f.write(f"{target_x},{target_y}")
