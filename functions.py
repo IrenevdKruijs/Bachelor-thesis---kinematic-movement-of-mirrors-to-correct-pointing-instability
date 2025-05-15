@@ -48,15 +48,10 @@ def image(camera):
             camera.StopGrabbing()
         camera.StartGrabbing(1)
         grab = camera.RetrieveResult(2000, pylon.TimeoutHandling_Return)
-        if grab.GrabSucceeded():
-            img = grab.GetArray()
-            return img 
-        else: 
-            print("failed to grab image")
-            return None
-    except Exception as e:
-        print(f'Error in image capture: {e}')
-        return None
+        if not grab.GrabSucceeded():
+            raise Exception("failed to grab image")
+        img = grab.GetArray()
+        return img 
     finally:
         if camera.IsGrabbing():
             camera.StopGrabbing()
