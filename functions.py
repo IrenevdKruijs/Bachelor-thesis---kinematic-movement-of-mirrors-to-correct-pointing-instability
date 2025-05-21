@@ -113,18 +113,14 @@ def localize_beam_center(inputimage):
     return middle_x, middle_y
 
 class PiezoMotor:
-    def __init__(self,serial_number,steprate):
+    def __init__(self,steprate,serial_number="97251304"):
         """
-        TO DO: 
-        - Do I want the image and coordinates function to be included in this function or to be separate? 
-            I think separate is better so that the function requires as little information as possible.
-        - adjust time.sleep to the minimum value + small margin to speed up the code
-        
         function to move the piezomotors of the different mirrors using a Thorlabs KCube 
         input: new_pos_chan: the new positions the motors have to go to for 4 different channels
             steprate: the steprate at which the motor has to move
             camera: the camera that is used for taking the picture
-        output: middle_x, middle_y: the new coordinates of the middle of the laser beam after movement
+        output: this function does not have an output
+    
 
         """
 
@@ -134,6 +130,8 @@ class PiezoMotor:
         self.serial_number = str(serial_number)  # Serial number of device
         self.device = KCubeInertialMotor.CreateKCubeInertialMotor(self.serial_number)
         self.steprate = steprate
+        self.last_movement = (0,0,0,0)
+        self.current_position = (0,0,0,0)
         # Connect
         self.device.Connect(self.serial_number)
         time.sleep(0.25)
@@ -166,39 +164,118 @@ class PiezoMotor:
         for chan in [self.chan1, self.chan2, self.chan3, self.chan4]:
             settings.Drive.Channel(chan).StepRate = self.steprate
             settings.Drive.Channel(chan).StepAcceleration = 100000
-            # Send settings to the device
+        # Send settings to the device
         self.device.SetSettings(settings, True, True)
 
-            # Home or Zero the device (if a motor/piezo)
+        # Home or Zero the device (if a motor/piezo)
         print("Zeroing device")
         self.device.SetPositionAs(self.chan1, 0)
         self.device.SetPositionAs(self.chan2, 0)
         self.device.SetPositionAs(self.chan3, 0)
         self.device.SetPositionAs(self.chan4, 0)
-            
-    def move_steps(self,new_pos_chan1,new_pos_chan2,new_pos_chan3,new_pos_chan4):
+    
+    def correct_backlash(self,step_chan1,step_chan2,step_chan3,step_chan4,backlash_steps = 100):
+        """
+        TO DO: also correct backlash when there is not yet a last movement (so with the first movement)
+        Corrects backlash only when the direction of movement changes for each channel.
+        
+        Args:
+            new_pos_chan1, new_pos_chan2, new_pos_chan3, new_pos_chan4: Target positions for channels 1-4.
+            backlash_steps: Number of steps to overshoot for backlash correction (default: 100).
+        """
+        new_relative = [step_chan1, step_chan2, step_chan3, step_chan4]
+        current_positions = list(self.current_position)
+        last_moves = list(self.last_movement)
+        correction_moves = [0, 0, 0, 0]
+        return_moves = [0,0,0,0]
 
-            # Move the device to a new position
-            channel = self.chan1
-            if new_pos_chan1 != 0:
-                self.device.MoveTo(channel, int(new_pos_chan1), 6000)  # 60 second timeout
-            
-            channel = self.chan2
-            if new_pos_chan2 != 0:
-                self.device.MoveTo(channel, int(new_pos_chan2), 6000)  # 60 second timeout
+        for i in range(4):
+            if new_relative[i] == 0:
+                continue
+            current_move = current_positions[i]+new_relative[i]
+            last_move = last_moves[i]
+            # Check if direction has changed (opposite signs and non-zero last move)
+            if current_move * last_move < 0 and last_move != 0:
+                # Direction reversed: apply backlash correction
+                if current_move > current_positions[i]:
+                    # Moving forward after backward: move backward first
+                    correction_moves[i] = current_positions[i] - backlash_steps
+                    return_moves[i]= correction_moves[i]+backlash_steps
+                else:
+                    # Moving backward after forward: move forward first
+                    correction_moves[i] = current_positions[i] + backlash_steps
+                    return_moves[i]=correction_moves[i]-backlash_steps
+            else:
+                # No direction change: move directly to target
+                correction_moves[i] = 0
+                return_moves[i]=0
 
-            channel = self.chan3
-            if new_pos_chan3 != 0:
-                self.device.MoveTo(channel, int(new_pos_chan3), 6000)  # 3 second timeout
+        # Perform backlash correction if needed
+        if any(c != 0 for c in correction_moves):
+            self.move_steps(
+                correction_moves[0], correction_moves[1], correction_moves[2], correction_moves[3]
+            )
+            # Move back to original positions (absolute)
+            self.move_steps(
+                return_moves[0], return_moves[1], return_moves[2], return_moves[3]
+            )
             
-            channel = self.chan4
-            if new_pos_chan4 != 0:
-                self.device.MoveTo(channel, int(new_pos_chan4), 6000)  # 3 second timeout
+    def move_steps(self,pos_chan1,pos_chan2,pos_chan3,pos_chan4):
+
+        """
+        Move the motor to the specified absolute positions for each channel and capture beam position.
+        
+        Args:
+            pos_chan1, pos_chan2, pos_chan3, pos_chan4: Absolute positions for channels 1-4.
+        
+        Returns:
+            middle_x, middle_y: Coordinates of the beam center after movement.
             
-            if self.steprate <= 200: #adjusts waiting time to steprate
-                time.sleep(10)
-            else: 
-                time.sleep(5)
+        """
+                # Move to final target positions (absolute)
+        #dit moet pas na opnieuw positie hebben gemeten dus ws in move_steps
+        new_relative = [pos_chan1,pos_chan2,pos_chan3,pos_chan4]
+        target_positions = [
+            current_positions[i] + new_relative[i] if new_relative[i] != 0 else current_positions[i]
+            for i in range(4)
+        ]
+        # self.move_steps(
+        #     target_positions[0], target_positions[1], target_positions[2], target_positions[3]
+        # )
+
+        # Update movement history
+        self.last_movement = tuple(new_relative)
+        current_positions = list(self.current_position)
+        # Input positions are absolute, derived from current_position + relative steps
+        max_steps = 0
+
+        try:
+            if pos_chan1 != current_positions[0]:
+                self.device.MoveTo(self.chan1, int(target_positions[0]), 6000)
+                max_steps = max(max_steps, abs(pos_chan1 - current_positions[0]))
+            
+            if pos_chan2 != current_positions[1]:
+                self.device.MoveTo(self.chan2, int(target_positions[1]), 6000)
+                max_steps = max(max_steps, abs(pos_chan2 - current_positions[1]))
+
+            if pos_chan3 != current_positions[2]:
+                self.device.MoveTo(self.chan3, int(target_positions[2]), 6000)
+                max_steps = max(max_steps, abs(pos_chan3 - current_positions[2]))
+            
+            if pos_chan4 != current_positions[3]:
+                self.device.MoveTo(self.chan4, int(pos_chan4,target_positions[3]), 6000)
+                max_steps = max(max_steps, abs(pos_chan4 - current_positions[3]))
+        except Exception as e:
+            raise RuntimeError(f"Failed to move motor: {e}")
+
+        # Update current position
+        self.current_position = tuple(target_positions)
+
+        # Dynamic wait time based on steps moved
+        wait_time = max_steps / self.steprate + 0.5 if max_steps > 0 else 1.0
+        time.sleep(wait_time)
+
+        
     def shutdown(self):
             # Stop Polling and Disconnect
             self.device.StopPolling()
@@ -208,34 +285,35 @@ class PiezoMotor:
 def calibrate_mirror1_2D(amount_steps, stepsize, repeats,steprate):
     
     all_shifts = []
-        
+    motor = PiezoMotor(steprate=steprate, serial_number="97251304",)
+    cam = camera_controller()
     for h in range(repeats):
-        piezomotor(-100, -100, 0, 0,steprate)  # backlash compensation
-        x0, y0 = piezomotor(100, 100, 0, 0,steprate)
-        print(f"Startpositie (pixels): {x0}, {y0}")
-        stap = stepsize   #initialize stap for correct data savings
+        motor.correct_backlash(100,100,0,0)
+        img = cam.capture_image()
+        x0, y0 = localize_beam_center(img)
+        current_step = 0   #initialize stap for correct data savings
         shifts = []     #initialize shifts to save the shifts
         for _ in range(amount_steps + 1):  # endpoint included
-            huidig_stap = stepsize 
-            x,y= piezomotor(huidig_stap, huidig_stap, 0, 0,steprate)
+            current_step += stepsize 
+            motor.move_steps(stepsize, stepsize, 0, 0,steprate)
+            img = cam.capture_image()
+            x,y=localize_beam_center()
             dx = x - x0
             dy = y - y0
-            shifts.append((stap, dx, dy))
-            print(f"Stappen: {stap} | Δx = {dx}, Δy = {dy}")
+            shifts.append((current_step, dx, dy))
+            print(f"Steps: {current_step} | Δx = {dx}, Δy = {dy}")
             # Save shifts of this repeat
             with open(f"kalibratie_spiegel1_2D_herhaling_{h+1}.txt", "w") as f:
                 f.write("Motorstap\tDeltaX_pixels\tDeltaY_pixels\n")
-                for stap, dx, dy in shifts:
-                    f.write(f"{stap}\t{dx}\t{dy}\n")
-            stap += stepsize 
+                for current_step, dx, dy in shifts:
+                    f.write(f"{current_step}\t{dx}\t{dy}\n")
         all_shifts.append(shifts)
-        piezomotor(
-        (-(stepsize * amount_steps) ),
-        (-(stepsize * amount_steps)),
+        motor.move_steps(
+        (-(amount_steps*stepsize)),
+        (-(amount_steps*stepsize)),
         0, 0, steprate
         )
     return all_shifts     
-
 
 
 def get_cached_calibration(amount_steps, stepsize, repeats, steprate, cache_file="calibration_cache.json"):
