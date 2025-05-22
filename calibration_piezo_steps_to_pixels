@@ -101,15 +101,15 @@ def plot_calibration(calibrations, output_file, labels=None, combine_datasets=Fa
 if __name__ == "__main__":
     # Your existing calibration calls
     flipmirror(1)
-    # data1 = calibrate_mirror1_2D(5, 100, 1, 100, motor)
-    data2 = calibrate_mirror1_2D(5, 100, 1, 250, motor)
-    data3 = calibrate_mirror1_2D(5, 100,1, 500, motor)
-    data4 = calibrate_mirror1_2D(5, 100,1, 1000, motor)
+    data1 = calibrate_mirror1_2D(5, 100, 2, 100, motor)
+    data2 = calibrate_mirror1_2D(5, 100, 2, 250, motor)
+    data3 = calibrate_mirror1_2D(5, 100,2, 500, motor)
+    data4 = calibrate_mirror1_2D(5, 100,2, 1000, motor)
     # Plot with multiple datasets
     fits = plot_calibration(
-        [data2, data3, data4],
-        "combined_calibration.png",
-        labels=["steprate = 250", "steprate = 500", "steprate = 1000"],
+        [data1,data2, data3, data4],
+        "combined_calibration_with_repeats.png",
+        labels=["steprate=100","steprate = 250", "steprate = 500", "steprate = 1000"],
         combine_datasets=True,
         plot_individual_runs=True
     )
