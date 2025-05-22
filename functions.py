@@ -180,53 +180,6 @@ class PiezoMotor:
         self.device.SetPositionAs(self.chan2, 0)
         self.device.SetPositionAs(self.chan3, 0)
         self.device.SetPositionAs(self.chan4, 0)
-    
-    def correct_backlash(self,step_chan1,step_chan2,step_chan3,step_chan4,steprate,backlash_steps = 100):
-        """
-        TO DO: also correct backlash when there is not yet a last movement (so with the first movement)
-        Corrects backlash only when the direction of movement changes for each channel.
-        
-        Args:
-            new_pos_chan1, new_pos_chan2, new_pos_chan3, new_pos_chan4: Target positions for channels 1-4.
-            backlash_steps: Number of steps to overshoot for backlash correction (default: 100).
-        """
-        new_relative = [step_chan1, step_chan2, step_chan3, step_chan4]
-        current_positions = list(self.current_position)
-        last_moves = list(self.last_movement)
-        correction_moves = [0, 0, 0, 0]
-        return_moves = [0,0,0,0]
-
-        for i in range(4):
-            if new_relative[i] == 0:
-                continue
-            current_move = current_positions[i]+new_relative[i]
-            print(f"current move = {new_relative[i]}")
-            last_move = last_moves[i]
-            # Check if direction has changed (opposite signs and non-zero last move)
-            if current_move * last_move < 0: #and last_move != 0:
-                # Direction reversed: apply backlash correction
-                if current_move > current_positions[i]:
-                    # Moving forward after backward: move backward first
-                    correction_moves[i] = current_positions[i] - backlash_steps
-                    return_moves[i]= correction_moves[i]+backlash_steps
-                else:
-                    # Moving backward after forward: move forward first
-                    correction_moves[i] = current_positions[i] + backlash_steps
-                    return_moves[i]=correction_moves[i]-backlash_steps
-            else:
-                # No direction change: move directly to target
-                correction_moves[i] = 0
-                return_moves[i]=0
-
-        # Perform backlash correction if needed
-        if any(c != 0 for c in correction_moves):
-            self.move_steps(
-                correction_moves[0], correction_moves[1], correction_moves[2], correction_moves[3],steprate=steprate
-            )
-            # Move back to original positions (absolute)
-            self.move_steps(
-                return_moves[0], return_moves[1], return_moves[2], return_moves[3],steprate=steprate
-            )
             
     def move_steps(self,pos_chan1,pos_chan2,pos_chan3,pos_chan4,steprate):
 
@@ -257,6 +210,7 @@ class PiezoMotor:
             settings.Drive.Channel(chan).StepAcceleration = 100000
         # Send settings to the device
         self.device.SetSettings(settings, True, True)
+    
         
         new_relative = [pos_chan1,pos_chan2,pos_chan3,pos_chan4]
         self.last_movement = tuple(new_relative)
@@ -268,38 +222,48 @@ class PiezoMotor:
             current_positions[i] + new_relative[i] if new_relative[i] != 0 else current_positions[i]
             for i in range(4)
         ]
-        # self.move_steps(
-        #     target_positions[0], target_positions[1], target_positions[2], target_positions[3]
-        # )
 
 
         # Input positions are absolute, derived from current_position + relative steps
         max_steps = 0
 
         try:
-            if pos_chan1 != current_positions[0]:
+            if pos_chan1 != current_positions[0] and current_positions[0]<target_positions[0]:
                 self.device.MoveTo(self.chan1, int(target_positions[0]), 10000)
                 max_steps = max(max_steps, abs(pos_chan1 - current_positions[0]))
+            elif current_positions[0]>target_positions[0]:
+                self.device.MoveTo(self.chan1,int(target_positions[0]-100))
+                self.device.MoveTo(self.chan1,int(target_positions[0]))
 
             # Dynamic wait time based on steps moved
             wait_time = max_steps / steprate + 4 if max_steps > 0 else 1.0
             time.sleep(wait_time)
             
-            if pos_chan2 != current_positions[1]:
+            if pos_chan2 != current_positions[1] and current_positions[1] < target_positions[1]:
                 self.device.MoveTo(self.chan2, int(target_positions[1]), 10000)
                 max_steps = max(max_steps, abs(pos_chan2))
+            elif current_positions[1]>target_positions[1]: #correct backlash
+                self.device.MoveTo(self.chan1,int(target_positions[1]-100))
+                self.device.MoveTo(self.chan1,int(target_positions[1]))
 
             # Dynamic wait time based on steps moved
             wait_time = max_steps/steprate + 4 if max_steps > 0 else 1.0
             time.sleep(wait_time)
 
-            if pos_chan3 != current_positions[2]:
+            if pos_chan3 != current_positions[2] and current_positions[2] < target_positions[2]:
                 self.device.MoveTo(self.chan3, int(target_positions[2]), 10000)
                 max_steps = max(max_steps, abs(pos_chan3))
+            elif current_positions[2]>target_positions[2]:
+                self.device.MoveTo(self.chan1,int(target_positions[2]-100))
+                self.device.MoveTo(self.chan1,int(target_positions[2]))
             
-            if pos_chan4 != current_positions[3]:
-                self.device.MoveTo(self.chan4, int(pos_chan4,target_positions[3]), 6000)
+            if pos_chan4 != current_positions[3]  and current_positions[3] < target_positions[3]:
+                self.device.MoveTo(self.chan4, int(pos_chan4,target_positions[3]), 10000)
                 max_steps = max(max_steps, abs(pos_chan4))
+            elif current_positions[3]>target_positions[3]:
+                self.device.MoveTo(self.chan1,int(target_positions[3]-100))
+                self.device.MoveTo(self.chan1,int(target_positions[3]))
+                
         except Exception as e:
             raise RuntimeError(f"Failed to move motor: {e}")
         # Update current position
