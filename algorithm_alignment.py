@@ -32,7 +32,7 @@ except FileNotFoundError:
     exit()
 
 margin = 5
-steprate = 250
+steprate = 500
 max_attempts = 5
 
 # Setup camera and motor
@@ -119,24 +119,6 @@ while attempt < max_attempts:
         print(f"Success! Target reached within margin. final deviation: dx = {dx_pixel}, dy = {dy_pixel}")
         flipmirror(2)
         break
-
-    # Only move axes that are outside the margin
-    dx_motor = int(dx_pixel / slope_x) if slope_x != 0 and abs(dx_pixel) > margin else 0
-    dy_motor = int(dy_pixel / slope_y) if slope_y != 0 and abs(dy_pixel) > margin else 0
-
-    if dx_motor == 0 and dy_motor == 0:
-        print("No movement needed; both axes within margin or no valid correction.")
-        break
-
-    motor.correct_backlash(dx_motor,dy_motor,0,0,steprate)
-    print("correcting backlash")
-    img=cam.capture_image()
-    middle_x,middle_y = localize_beam_center(img)
-
-    dx_pixel = x_target - middle_x
-    dy_pixel = y_target - middle_y
-
-    print(f"Attempt {attempt + 1}: dx = {dx_pixel}, dy = {dy_pixel} (pixels)")
 
     # Only move axes that are outside the margin
     dx_motor = int(dx_pixel / slope_x) if slope_x != 0 and abs(dx_pixel) > margin else 0
