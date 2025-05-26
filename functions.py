@@ -29,7 +29,7 @@ class camera_controller:
         
         for device in devices:
             print(device.GetFriendlyName())
-        
+
         # Create and attach the camera
         self.camera = pylon.InstantCamera()
         self.camera.Attach(tl_factory.CreateFirstDevice())
@@ -138,7 +138,7 @@ class PiezoMotor:
         self.device = KCubeInertialMotor.CreateKCubeInertialMotor(self.serial_number)
         self.last_movement = (0,0,0,0)
         self.current_position = (0,0,0,0)
-        self.steprate = 250
+        self.steprate = 500
         # Connect
         self.device.Connect(self.serial_number)
         time.sleep(0.25)
@@ -181,7 +181,7 @@ class PiezoMotor:
         self.device.SetPositionAs(self.chan3, 0)
         self.device.SetPositionAs(self.chan4, 0)
             
-    def move_steps(self,pos_chan1,pos_chan2,pos_chan3,pos_chan4,steprate):
+    def move_steps(self,pos_chan1,pos_chan2,pos_chan3,pos_chan4,steprate,backlash_correction=True):
 
         """
         Move the motor to the specified absolute positions for each channel and capture beam position.
@@ -210,7 +210,6 @@ class PiezoMotor:
             settings.Drive.Channel(chan).StepAcceleration = 100000
         # Send settings to the device
         self.device.SetSettings(settings, True, True)
-    
         
         new_relative = [pos_chan1,pos_chan2,pos_chan3,pos_chan4]
         self.last_movement = tuple(new_relative)
@@ -223,47 +222,72 @@ class PiezoMotor:
             for i in range(4)
         ]
 
-
         # Input positions are absolute, derived from current_position + relative steps
         max_steps = 0
 
         try:
-            if pos_chan1 != current_positions[0] and current_positions[0]<target_positions[0]:
+            if backlash_correction == True:
+                if pos_chan1 != current_positions[0] and current_positions[0]<target_positions[0]:
+                    self.device.MoveTo(self.chan1, int(target_positions[0]), 10000)
+                    max_steps = max(max_steps, abs(pos_chan1 - current_positions[0]))
+                elif current_positions[0]>target_positions[0]:
+                    self.device.MoveTo(self.chan1,int(target_positions[0]-100))
+                    self.device.MoveTo(self.chan1,int(target_positions[0]))
+
+                # Dynamic wait time based on steps moved
+                wait_time = max_steps / steprate + 4 if max_steps > 0 else 1.0
+                time.sleep(wait_time)
+                
+                if pos_chan2 != current_positions[1] and current_positions[1] < target_positions[1]:
+                    self.device.MoveTo(self.chan2, int(target_positions[1]), 10000)
+                    max_steps = max(max_steps, abs(pos_chan2))
+                elif current_positions[1]>target_positions[1]: #correct backlash
+                    self.device.MoveTo(self.chan2,int(target_positions[1]-100))
+                    self.device.MoveTo(self.chan2,int(target_positions[1]))
+
+                # Dynamic wait time based on steps moved
+                wait_time = max_steps/steprate + 4 if max_steps > 0 else 1.0
+                time.sleep(wait_time)
+
+                if pos_chan3 != current_positions[2] and current_positions[2] < target_positions[2]:
+                    self.device.MoveTo(self.chan3, int(target_positions[2]), 10000)
+                    max_steps = max(max_steps, abs(pos_chan3))
+                elif current_positions[2]>target_positions[2]:
+                    self.device.MoveTo(self.chan3,int(target_positions[2]-100))
+                    self.device.MoveTo(self.chan3,int(target_positions[2]))
+                
+                if pos_chan4 != current_positions[3]  and current_positions[3] < target_positions[3]:
+                    self.device.MoveTo(self.chan4, int(pos_chan4,target_positions[3]), 10000)
+                    max_steps = max(max_steps, abs(pos_chan4))
+                elif current_positions[3]>target_positions[3]:
+                    self.device.MoveTo(self.chan4,int(target_positions[3]-100))
+                    self.device.MoveTo(self.chan4,int(target_positions[3]))
+            else: 
+
                 self.device.MoveTo(self.chan1, int(target_positions[0]), 10000)
                 max_steps = max(max_steps, abs(pos_chan1 - current_positions[0]))
-            elif current_positions[0]>target_positions[0]:
-                self.device.MoveTo(self.chan1,int(target_positions[0]-100))
-                self.device.MoveTo(self.chan1,int(target_positions[0]))
 
-            # Dynamic wait time based on steps moved
-            wait_time = max_steps / steprate + 4 if max_steps > 0 else 1.0
-            time.sleep(wait_time)
-            
-            if pos_chan2 != current_positions[1] and current_positions[1] < target_positions[1]:
+                # Dynamic wait time based on steps moved
+                wait_time = max_steps / steprate + 4 if max_steps > 0 else 1.0
+                time.sleep(wait_time)
+                
                 self.device.MoveTo(self.chan2, int(target_positions[1]), 10000)
                 max_steps = max(max_steps, abs(pos_chan2))
-            elif current_positions[1]>target_positions[1]: #correct backlash
-                self.device.MoveTo(self.chan1,int(target_positions[1]-100))
-                self.device.MoveTo(self.chan1,int(target_positions[1]))
 
-            # Dynamic wait time based on steps moved
-            wait_time = max_steps/steprate + 4 if max_steps > 0 else 1.0
-            time.sleep(wait_time)
+                # Dynamic wait time based on steps moved
+                wait_time = max_steps/steprate + 4 if max_steps > 0 else 1.0
+                time.sleep(wait_time)
 
-            if pos_chan3 != current_positions[2] and current_positions[2] < target_positions[2]:
                 self.device.MoveTo(self.chan3, int(target_positions[2]), 10000)
                 max_steps = max(max_steps, abs(pos_chan3))
-            elif current_positions[2]>target_positions[2]:
-                self.device.MoveTo(self.chan1,int(target_positions[2]-100))
-                self.device.MoveTo(self.chan1,int(target_positions[2]))
-            
-            if pos_chan4 != current_positions[3]  and current_positions[3] < target_positions[3]:
+                
+                wait_time = max_steps/steprate + 4 if max_steps > 0 else 1.0
+                time.sleep(wait_time)
+                
                 self.device.MoveTo(self.chan4, int(pos_chan4,target_positions[3]), 10000)
                 max_steps = max(max_steps, abs(pos_chan4))
-            elif current_positions[3]>target_positions[3]:
-                self.device.MoveTo(self.chan1,int(target_positions[3]-100))
-                self.device.MoveTo(self.chan1,int(target_positions[3]))
-                
+
+                        
         except Exception as e:
             raise RuntimeError(f"Failed to move motor: {e}")
         # Update current position
@@ -280,7 +304,6 @@ def calibrate_mirror1_2D(amount_steps, stepsize, repeats,steprate,motor):
     all_shifts = []
     cam = camera_controller(1000)
     for h in range(repeats):
-        motor.correct_backlash(100,100,0,0,steprate)
         img = cam.capture_image()
         x0, y0 = localize_beam_center(img)
         current_step = 0   #initialize stap for correct data savings
