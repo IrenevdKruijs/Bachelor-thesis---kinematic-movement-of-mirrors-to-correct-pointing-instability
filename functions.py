@@ -20,52 +20,63 @@ class camera_controller:
     """
     This function initializes the camera, works for basler cameras 
     """
-    def __init__(self,exposuretime):
+    def __init__(self,exposuretime,serial_number_cam1,serial_number_cam2):
     # Initialize the pylon transport layer factory
         tl_factory = pylon.TlFactory.GetInstance()
-        devices = tl_factory.EnumerateDevices()
-        if not devices:
+        self.devices = tl_factory.EnumerateDevices()
+        if not self.devices:
             raise Exception("No Basler cameras found")
         
-        for device in devices:
-            print(device.GetFriendlyName())
+        self.devices.StopGrabbing()
+        for device in self.devices:
+            print(self.device.GetFriendlyName())
 
         # Create and attach the camera
-        self.camera = pylon.InstantCamera()
-        self.camera.Attach(tl_factory.CreateFirstDevice())
-        
-        # Open the camera to allow parameter configuration
-        self.camera.Open()
-
-            # Set exposure time (in microseconds, typically)
-            # Note: Use ExposureTimeAbs for most Basler cameras
-        self.camera.ExposureTime.SetValue(exposuretime)
-        self.camera.Close()
-        
-    def capture_image(self):  
+        camera = pylon.InstantCameraArray(min(len(self.devices)))
+        for i,self.camera in enumerate(self.devices):
+            camera.Attach(tl_factory.CreateDevice(self.devices[i]))
+            camera.Open()
+            cameraSerialNumber = self.camera.GetDeviceInfo().GetSerialNumber()
+            if cameraSerialNumber == serial_number_cam1:
+                print(f"using device with serial number: {cameraSerialNumber}")
+            # Open the camera to allow parameter configuration
+                self.cam1 = camera
+            elif cameraSerialNumber == serial_number_cam2:
+                print(f"Using device with serial number: {cameraSerialNumber}")
+                self.cam2 = self.camera
+            else:
+                raise Exception("Device with unknown serial number connected. Change the serial numbers or connect the correct cameras") 
+        self.cam1.ExposureTime.SetValue(exposuretime)
+        self.cam2.ExposureTime.SetValue(exposuretime)
+        self.cam1.Close()
+        self.cam2.Close()
+            
+            
+    def capture_image(self,camera_choice):  
         """
         This function makes an image using the camera initialized in camera_setup
         Args:
-            camera: The input the function needs is which camera should be used, is the output of camera_setup
+            camera_choice: The input the function needs is which camera should be used, put in 1 for camera 1 and 2 for camera 2.
 
         Returns:
             image: the function returns the image with one frame 
         """
+        camera = self.cam1 if camera_choice == 1 else self.cam2
         try:
-            if not self.camera.IsOpen():
-                self.camera.Open()
-            if self.camera.IsGrabbing():
-                self.camera.StopGrabbing()
-            self.camera.StartGrabbing(1)
-            grab = self.camera.RetrieveResult(2000, pylon.TimeoutHandling_Return)
+            if not camera.IsOpen():
+                camera.Open()
+            if camera.IsGrabbing():
+                camera.StopGrabbing()
+            camera.StartGrabbing()
+            grab = camera.RetrieveResult(2000, pylon.TimeoutHandling_Return)
             if not grab.GrabSucceeded():
                 raise Exception("failed to grab image")
             img = grab.GetArray()
             return img 
         finally:
-            if self.camera.IsGrabbing():
-                self.camera.StopGrabbing()
-            self.camera.Close()
+            if camera.IsGrabbing():
+                camera.StopGrabbing()
+            camera.Close()
 
 def localize_beam_center(inputimage):
     """
