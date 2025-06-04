@@ -8,9 +8,9 @@ This script finds the middle of the beam and displays those coordinates. This sc
 
 from functions import *
 filename = "target_pixels_cam1.txt"
-exposuretime=1000
+exposuretime=10000
 cam=camera_controller(exposuretime)
-img = cam.capture_image()
+img = cam.capture_image(1)
 target_x, target_y = localize_beam_center(img)
 print(f"target pixel is ({target_x},{target_y})")
 if os.path.exists(filename):
