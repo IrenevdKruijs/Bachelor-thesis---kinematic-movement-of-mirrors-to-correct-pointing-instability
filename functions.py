@@ -39,12 +39,12 @@ class camera_controller:
             camera.Attach(tl_factory.CreateDevice(self.devices[i]))
             camera.Open()
             camera_serial_number = camera.GetDeviceInfo().GetSerialNumber()
-            if camera_serial_number == str(serial_number_cam1):
-                print(f"Using device with serial number: {camera_serial_number}")
-                self.cam1 = camera
-            elif camera_serial_number == str(serial_number_cam2):
+            if camera_serial_number == str(serial_number_cam2):
                 print(f"Using device with serial number: {camera_serial_number}")
                 self.cam2 = camera
+            elif camera_serial_number == str(serial_number_cam1):
+                print(f"Using device with serial number: {camera_serial_number}")
+                self.cam1 = camera
             else:
                 camera.Close()  # Close camera if serial number doesn't match
                 raise Exception("Device with unknown serial number connected. Change the serial numbers or connect the correct cameras")
@@ -245,7 +245,7 @@ class PiezoMotor:
                 if pos_chan1 != current_positions[0] and current_positions[0]<target_positions[0]:
                     self.device.MoveTo(self.chan1, int(target_positions[0]), 10000)
                     max_steps = max(max_steps, abs(pos_chan1 - current_positions[0]))
-                elif current_positions[0]>target_positions[0]:
+                elif current_positions[0]>target_positions[0] and pos_chan1 != current_positions[0]:
                     self.device.MoveTo(self.chan1,int(target_positions[0]-200),10000)
                     self.device.MoveTo(self.chan1,int(target_positions[0]),10000)
 
@@ -289,7 +289,9 @@ class PiezoMotor:
                     # Dynamic wait time based on steps moved
                     wait_time = max_steps / self.steprate + 0.5 if max_steps > 0 else 1.0
                     time.sleep(wait_time)
-                    
+                else:
+                
+                
                 if pos_chan2!=current_positions[1]:
                     self.device.MoveTo(self.chan2, target_positions[1], 10000)
                     max_steps = max(max_steps, abs(pos_chan2))
@@ -297,6 +299,7 @@ class PiezoMotor:
                     # Dynamic wait time based on steps moved
                     wait_time = max_steps/self.steprate + 0.5 if max_steps > 0 else 1.0
                     time.sleep(wait_time)
+                else: return()
 
                 if pos_chan3!=current_positions[2]:
                     self.device.MoveTo(self.chan3, target_positions[2], 10000)
@@ -304,6 +307,7 @@ class PiezoMotor:
                 
                     wait_time = max_steps/self.steprate + 0.5 if max_steps > 0 else 1.0
                     time.sleep(wait_time)
+                else: return()
                 
                 if pos_chan4!=current_positions[3]: 
                     self.device.MoveTo(self.chan4, target_positions[3], 10000)
@@ -311,6 +315,8 @@ class PiezoMotor:
                 
                     wait_time = max_steps/self.steprate + 0.5 if max_steps > 0 else 1.0
                     time.sleep(wait_time)
+                else:
+                    return()
                         
         except Exception as e:
             raise RuntimeError(f"Failed to move motor: {e}")
@@ -436,6 +442,60 @@ def flipmirror(position):
     except Exception as e:
         print(e)
         
+import csv
+import json
+import os
+from scipy.stats import linregress
+
+def create_slope_lookup(channels=[1, 2, 3, 4], directions=[1, -1], output_file="slope_lookup.json"):
+    slopes = {}
+    for channel in channels:
+        for direction in directions:
+            direction_str = "up" if direction == 1 else "down"
+            file_name = f"backlash_data_chan{channel}_{direction_str}.csv"
+            if not os.path.exists(file_name):
+                print(f"Error: {file_name} not found. Please run check_backlash for channel {channel}, direction {direction}.")
+                continue
+            
+            steps = []
+            movements = []
+            try:
+                with open(file_name, 'r', newline='') as f:
+                    reader = csv.reader(f)
+                    next(reader)  # Skip header
+                    for row in reader:
+                        if len(row) != 3:
+                            continue
+                        step, end_pos, _ = map(float, row)
+                        steps.append(step * direction)  # Adjust step sign
+                        movements.append(end_pos)
+            except Exception as e:
+                print(f"Error reading {file_name}: {e}")
+                continue
+            
+            if not steps or len(steps) < 2:
+                print(f"Insufficient data in {file_name} for linear regression.")
+                continue
+            
+            # Compute slope using linear regression
+            slope, _, r_value, _, _ = linregress(steps, movements)
+            if r_value**2 < 0.8:
+                print(f"Warning: Low fit quality for chan{channel}_dir{direction} (R² = {r_value**2:.4f}).")
+            
+            key = f"chan{channel}_dir{direction}"
+            slopes[key] = {
+                "slope": slope,  # pixels per step
+                "r_squared": r_value**2
+            }
+            print(f"Computed slope for {key}: {slope:.4f} pixels/step (R² = {r_value**2:.4f})")
+    
+    # Save to JSON
+    with open(output_file, 'w') as f:
+        json.dump(slopes, f, indent=4)
+    
+    print(f"Slope lookup table saved to {output_file}")
+    return slopes
+
 
 
 
