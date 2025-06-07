@@ -20,7 +20,7 @@ class camera_controller:
     """
     This function initializes the camera, works for basler cameras 
     """
-    def __init__(self,exposuretime=10000,serial_number_cam1=22357092,serial_number_cam2=23572269):
+    def __init__(self,exposuretime=50,serial_number_cam1=22357092,serial_number_cam2=23572269):
     # Initialize the pylon transport layer factory
         tl_factory = pylon.TlFactory.GetInstance()
         self.devices = tl_factory.EnumerateDevices()
@@ -80,60 +80,50 @@ class camera_controller:
             if camera.IsGrabbing():
                 camera.StopGrabbing()
             camera.Close()
+            
+import os
+from PIL import Image
+import numpy as np
+import matplotlib
+matplotlib.use('TkAgg')  # Use Tkinter to avoid Qt/COM issues
+import matplotlib.pyplot as plt
+from scipy import signal
 
-def localize_beam_center(inputimage):
-    """
-    TO DO: 
-    - Investigate how to define the maximum input image and ensure that pixels with slightly lower intensity are also included -> otherwise, errors occur at higher wavelengths.
+def localize_beam_center(initial_image, new_image):
+    print("Calculating beam center...")
+    # Convert PIL images to grayscale NumPy arrays
+    if isinstance(initial_image, Image.Image):
+        initial_image = np.array(initial_image.convert('L'), dtype=np.float32)
+    if isinstance(new_image, Image.Image):
+        new_image = np.array(new_image.convert('L'), dtype=np.float32)
     
-    This function takes the image of a beam on the camera and 
-    returns the coordinates (x,y) of the middle pixel of the beam
-    inputimage = the image of the beam
-    """
-    # Find max intensity and add margin for pixels that do not have the highest intensity but just below that
-    max_intensity = np.max(inputimage)
+    # Verify input shapes
+    print(f"Initial image shape: {initial_image.shape}")
+    print(f"New image shape: {new_image.shape}")
     
+    # Ensure inputs are 2D (grayscale)
+    if len(initial_image.shape) > 2 or len(new_image.shape) > 2:
+        raise ValueError("Input images must be grayscale (2D arrays)")
     
-    # Find all pixels with max intensity
-    max_pixel_locs = np.where(inputimage >= max_intensity)
-    max_pixel_coords = list(zip(max_pixel_locs[0], max_pixel_locs[1]))  # List of (y, x)
+    # Compute cross-correlation
+    correlated_image = signal.correlate(initial_image, new_image, method="fft")
+    print(f"Correlated image shape: {correlated_image.shape}, type: {type(correlated_image)}")
     
-    if not max_pixel_coords or max_intensity ==0:
-        raise Exception(f"No pixels with maximum intensity found.")
-
+    # Find the coordinates of the maximum value
+    max_idx = np.argmax(correlated_image)
+    middle_y, middle_x = np.unravel_index(max_idx, correlated_image.shape)
+    print(f"Beam shift found at (x, y): ({middle_x}, {middle_y})")
     
-    # Filter pixels that border other pixels with max intensity
-    connected_pixel_coords = []
-    height, width = inputimage.shape
-    for y, x in max_pixel_coords:
-        # Check 8-connectivity
-        has_neighbor = False
-        for dy in [-1, 0, 1]:
-            for dx in [-1, 0, 1]:
-                if dy == 0 and dx == 0:
-                    continue
-                ny, nx = y + dy, x + dx
-                # check if the neighbour is inside the image
-                if 0 <= ny < height and 0 <= nx < width:
-                    if inputimage[ny, nx] >= max_intensity:
-                        has_neighbor = True
-                        break
-            if has_neighbor:
-                break
-        if has_neighbor:
-            connected_pixel_coords.append((y, x))
+    # Adjust coordinates to get the relative shift
+    corr_height, corr_width = correlated_image.shape
+    center_y, center_x = corr_height // 2, corr_width // 2
+    shift_x = middle_x - center_x
+    shift_y = middle_y - center_y
+    print(f"Raw max coordinates: (x, y) = ({middle_x}, {middle_y})")
+    print(f"Beam shift (pixels): (x, y) = ({shift_x}, {shift_y})")
     
-    if not connected_pixel_coords:
-        print(f"Geen verbonden pixels met maximale intensiteit gevonden.")
-        raise  Exception("No connected pixels with max intensity found")  
+    return correlated_image, middle_x, middle_y  # Return image and coordinates
     
-    # calculate middle pixel and save
-    y_coords, x_coords = zip(*connected_pixel_coords)
-    middle_y = int(np.mean(y_coords))
-    middle_x = int(np.mean(x_coords))
-    
-    return middle_x, middle_y
-
 class PiezoMotor:
     def __init__(self,serial_number="97251304"):
         """
@@ -289,7 +279,7 @@ class PiezoMotor:
                     # Dynamic wait time based on steps moved
                     wait_time = max_steps / self.steprate + 0.5 if max_steps > 0 else 1.0
                     time.sleep(wait_time)
-                else:
+                
                 
                 
                 if pos_chan2!=current_positions[1]:
@@ -299,7 +289,7 @@ class PiezoMotor:
                     # Dynamic wait time based on steps moved
                     wait_time = max_steps/self.steprate + 0.5 if max_steps > 0 else 1.0
                     time.sleep(wait_time)
-                else: return()
+         
 
                 if pos_chan3!=current_positions[2]:
                     self.device.MoveTo(self.chan3, target_positions[2], 10000)
@@ -307,7 +297,7 @@ class PiezoMotor:
                 
                     wait_time = max_steps/self.steprate + 0.5 if max_steps > 0 else 1.0
                     time.sleep(wait_time)
-                else: return()
+  
                 
                 if pos_chan4!=current_positions[3]: 
                     self.device.MoveTo(self.chan4, target_positions[3], 10000)
@@ -315,8 +305,7 @@ class PiezoMotor:
                 
                     wait_time = max_steps/self.steprate + 0.5 if max_steps > 0 else 1.0
                     time.sleep(wait_time)
-                else:
-                    return()
+        
                         
         except Exception as e:
             raise RuntimeError(f"Failed to move motor: {e}")
