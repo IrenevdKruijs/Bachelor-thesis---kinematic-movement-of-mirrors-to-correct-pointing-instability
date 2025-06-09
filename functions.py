@@ -122,7 +122,7 @@ def localize_beam_center(initial_image, new_image):
     print(f"Raw max coordinates: (x, y) = ({middle_x}, {middle_y})")
     print(f"Beam shift (pixels): (x, y) = ({shift_x}, {shift_y})")
     
-    return correlated_image, middle_x, middle_y  # Return image and coordinates
+    return correlated_image, shift_x, shift_y  # Return image and coordinates
     
 class PiezoMotor:
     def __init__(self,serial_number="97251304"):

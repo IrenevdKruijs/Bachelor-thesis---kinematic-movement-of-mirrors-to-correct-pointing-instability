@@ -3,6 +3,7 @@ import clr
 import math
 import json
 from functions import *
+import cv2
 
 # Initialize camera and motor libraries
 clr.AddReference(r"C:\Program Files\Thorlabs\Kinesis\Thorlabs.MotionControl.DeviceManagerCLI.dll")
@@ -14,12 +15,10 @@ from Thorlabs.MotionControl.KCube.InertialMotorCLI import *
 
 # Constants
 try:
-    with open("target_pixels_cam1.txt") as f:
-        x1_target, y1_target = map(int, f.read().strip().split(","))
-    with open("target_pixels_cam2.txt") as f:
-        x2_target, y2_target = map(int, f.read().strip().split(","))
+    target_img_cam1 = cv2.imread("target_pixels_cam1.png")
+    target_img_cam2 = cv2.imread("target_pixels_cam2.png")
 except FileNotFoundError:
-    print("Align setup and run find_middle_after_alignment")
+    print("Align setup and run calibrate_after_alignment")
     exit()
 
 margin = 5  # ~27.5µm
@@ -49,7 +48,7 @@ for channel in [1, 2, 3, 4]:
             print(f"Warning: Slope for {key} is very small ({slope:.4f}). Consider re-running check_backlash.")
 
 # Setup camera and motor
-cam = camera_controller(exposuretime=10000)
+cam = camera_controller(exposuretime=50)
 motor = PiezoMotor(serial_number="97251304")
 
 # Ensure flip mirror is in upright position
@@ -57,17 +56,13 @@ flipmirror(1)
 
 # Check if laser is already aligned
 image1 = cam.capture_image(1)
-current_x, current_y = localize_beam_center(image1)
-print(f"Camera 1: x={current_x}, y={current_y}")
-
 image2 = cam.capture_image(2)
-current_x2, current_y2 = localize_beam_center(image2)
-print(f"Camera 2: x={current_x2}, y={current_y2}")
-
-if (x1_target - margin <= current_x <= x1_target + margin and 
-    y1_target - margin <= current_y <= y1_target + margin and 
-    x2_target - margin <= current_x2 <= x2_target + margin and 
-    y2_target - margin <= current_y2 <= y2_target + margin):
+x1_dev,y1_dev = localize_beam_center(target_img_cam1,image1)
+x2_dev,y2_dev = localize_beam_center(target_img_cam2,image2)
+if (abs(x1_dev) <= margin and 
+    abs(y1_dev) and 
+    abs(x2_dev) <= margin and 
+    abs(y2_dev) <= margin):
     print("Laser already correctly aligned")
     flipmirror(2)
     motor.shutdown()
@@ -78,22 +73,16 @@ attempt = 0
 while attempt < max_attempts:
     # Capture current positions
     image1 = cam.capture_image(1)
-    middle_x1, middle_y1 = localize_beam_center(image1)
-    if middle_x1 is None or middle_y1 is None:
+    dx1_pixel,dy1_pixel = localize_beam_center(target_img_cam1,image1)
+    if dx1_pixel is None or dy1_pixel is None:
         print("Error: Could not determine beam center at camera 1.")
         break
 
     image2 = cam.capture_image(2)
-    middle_x2, middle_y2 = localize_beam_center(image2)
-    if middle_x2 is None or middle_y2 is None:
+    dx2_pixel,dy2_pixel = localize_beam_center(target_img_cam2,image2)
+    if dx2_pixel is None or dy2_pixel is None:
         print("Error: Could not determine beam center at camera 2.")
         break
-
-    # Calculate desired pixel movements
-    dx1_pixel = x1_target - middle_x1
-    dy1_pixel = y1_target - middle_y1
-    dx2_pixel = x2_target - middle_x2
-    dy2_pixel = y2_target - middle_y2
     
     #test numbers
     dx1_pixel = 100
@@ -127,8 +116,6 @@ while attempt < max_attempts:
     MM2_x = -math.tan(h_x / A)
     print(f"Angles (radians): MM1_x={MM1_x:.6f}, MM1_y={MM1_y:.6f}, MM2_x={MM2_x:.6f}, MM2_y={MM2_y:.6f}")
     
-
-
     # Convert angular movements to pixel movements
     pixels_per_radian_1 = (B+C) / pixelsize # pixels/radian for mirror 1
     pixels_per_radian_2 = (A+B + C) / pixelsize  # pixels/radian for mirror 2
@@ -143,7 +130,6 @@ while attempt < max_attempts:
     dy1_dir = 1 if MM1_y_pixels > 0 else -1
     dx2_dir = 1 if MM2_x_pixels > 0 else -1
     dy2_dir = 1 if MM2_y_pixels > 0 else -1
-
 
     # Calculate steps using slopes, with cap
     dx1_steps = int(abs(MM1_x_pixels)/ slopes[f"chan1_dir{dx1_dir}"]["slope"]) * dx1_dir if abs(dx1_pixel) > margin else 0

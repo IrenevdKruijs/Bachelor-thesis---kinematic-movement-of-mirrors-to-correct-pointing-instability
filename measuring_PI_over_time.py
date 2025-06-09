@@ -7,7 +7,6 @@ import matplotlib.pyplot as plt
 import csv
 import time
 
-# [Previous imports and class definitions remain unchanged]
 # Initialize camera and motor libraries
 clr.AddReference(r"C:\Program Files\Thorlabs\Kinesis\Thorlabs.MotionControl.DeviceManagerCLI.dll")
 clr.AddReference(r"C:\Program Files\Thorlabs\Kinesis\Thorlabs.MotionControl.GenericMotorCLI.dll")
@@ -20,14 +19,14 @@ from functions import *
 # Initialize camera
 cam = camera_controller()
 pixelsize = 5.5e-6  # m
-runtime = 30  # time in minutes
-wavelength = 532  # nm, example value
-laser_power = 100  # mW, example value
-camera_model = "Basler acA1300-60gm"  # Example camera model
-
+runtime = 60  # time in minutes
+wavelength = 800  # nm
+laser_power = 6  #%
+camera_model = "Basler acA2000-165umNIR" 
+rest_interval = 300
 # Create directory for saving data
 current_time = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-save_dir = f"beam_data_{current_time}"
+save_dir = f"beam_pointing_instability_data_{current_time}"
 if not os.path.exists(save_dir):
     os.makedirs(save_dir)
 
@@ -36,98 +35,114 @@ metadata_path = os.path.join(save_dir, "metadata.txt")
 with open(metadata_path, "w") as f:
     f.write(f"Date and Time: {current_time}\n")
     f.write(f"Wavelength: {wavelength} nm\n")
-    f.write(f"Laser Power: {laser_power} mW\n")
+    f.write(f"Laser Power: {laser_power} %")
     f.write(f"Camera Model: {camera_model}\n")
     f.write(f"Pixel Size: {pixelsize} m\n")
     f.write(f"Runtime: {runtime} minutes\n")
+    f.write(f"pause between measurements: {rest_interval} seconds")
+    f.write("Cameras Used: Camera 1 and Camera 2\n")
 
-# Capture initial beam position
+# Capture initial beam positions for both cameras
 start_time = time.time()  # Record start time
-img = cam.capture_image(2)
-x0, y0 = localize_beam_center(img)
+initial_img_cam1 = cam.capture_image(1)
+initial_img_cam2 = cam.capture_image(2)
 
-# Save initial image with green dot
-img_color = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
-cv2.circle(img_color, (x0, y0), 5, (0, 255, 0), -1)  # Green dot
-initial_image_path = os.path.join(save_dir, "initial_image.png")
-cv2.imwrite(initial_image_path, img_color)
+# Save initial images
+initial_image_path_cam1 = os.path.join(save_dir, "initial_image_cam1.png")
+cv2.imwrite(initial_image_path_cam1,initial_img_cam1)
 
-# Lists to store data
+initial_image_path_cam2 = os.path.join(save_dir, "initial_image_cam2.png")
+cv2.imwrite(initial_image_path_cam2, initial_img_cam2)
+
+# Lists to store data for both cameras
 times = []
-x_deviations = []
-y_deviations = []
-x_deviations_dist = []
-y_deviations_dist = []
-image_paths = []  # Store paths for video creation
+x_deviations_cam1 = []
+y_deviations_cam1 = []
+x_deviations_cam2 = []
+y_deviations_cam2 = []
+image_paths_cam1 = []
+image_paths_cam2 = []
 
-# CSV file setup
-csv_filename = os.path.join(save_dir, 'beam_deviation_over_time.csv')
+# CSV file setup for both cameras
+csv_filename = os.path.join(save_dir, f'beam_deviation_over_time_{current_time}.csv')
 with open(csv_filename, 'w', newline='') as csvfile:
     csv_writer = csv.writer(csvfile)
-    csv_writer.writerow(['Time (s)', 'X Deviation (pixels)', 'Y Deviation (pixels)', 'X Deviation (m)', 'Y Deviation (m)'])
+    csv_writer.writerow(['Time (s)', 
+                        'Cam1 X Deviation (pixels)', 'Cam1 Y Deviation (pixels)', 
+                        'Cam1 X Deviation (m)', 'Cam1 Y Deviation (m)',
+                        'Cam2 X Deviation (pixels)', 'Cam2 Y Deviation (pixels)', 
+                        'Cam2 X Deviation (m)', 'Cam2 Y Deviation (m)'])
 
     # Main loop
     for i in range(runtime):
-        time.sleep(60)
+        time.sleep(rest_interval)
         current_time = time.time()
         elapsed_time = current_time - start_time  # Time since start in seconds
-        img = cam.capture_image(2)
-        x1, y1 = localize_beam_center(img)
+        
+        # Capture images from both cameras
+        img_cam1 = cam.capture_image(1)
+        img_cam2 = cam.capture_image(2)
 
-        # Plot green dot on image and save
-        img_color = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
-        cv2.circle(img_color, (x1, y1), 5, (0, 255, 0), -1)  # Green dot
-        image_path = os.path.join(save_dir, f"image_{i:03d}.png")
-        cv2.imwrite(image_path, img_color)
-        image_paths.append(image_path)  # Store for video
+        image_path_cam1 = os.path.join(save_dir, f"image_cam1_{i:03d}.png")
+        cv2.imwrite(image_path_cam1)
+        image_paths_cam1.append(image_path_cam1)
+
+        image_path_cam2 = os.path.join(save_dir, f"image_cam2_{i:03d}.png")
+        cv2.imwrite(image_path_cam2)
+        image_paths_cam2.append(image_path_cam2)
 
         # Deviation in pixels
-        x_dev = x1 - x0
-        y_dev = y1 - y0
-        # Deviation in distance
-        x_dev_dist = x_dev * pixelsize
-        y_dev_dist = y_dev * pixelsize
+        x_dev_cam1,y_dev_cam1 = localize_beam_center(initial_img_cam1,img_cam1)
+        x_dev_cam2,y_dev_cam2 = localize_beam_center(initial_img_cam2,img_cam2)
         
         # Store data
         times.append(elapsed_time)
-        x_deviations.append(x_dev)
-        y_deviations.append(y_dev)
-        x_deviations_dist.append(x_dev_dist)
-        y_deviations_dist.append(y_dev_dist)
+        x_deviations_cam1.append(x_dev_cam1)
+        y_deviations_cam1.append(y_dev_cam1)
+        x_deviations_cam2.append(x_dev_cam2)
+        y_deviations_cam2.append(y_dev_cam2)
+
         
         # Write to CSV
-        csv_writer.writerow([elapsed_time, x_dev, y_dev, x_dev_dist, y_dev_dist])
+        csv_writer.writerow([elapsed_time, 
+                           x_dev_cam1, y_dev_cam1,
+                           x_dev_cam2, y_dev_cam2])
 
-# Create video from saved images
-if image_paths:
-    # Read first image to get dimensions
-    first_img = cv2.imread(image_paths[0])
-    height, width = first_img.shape[:2]
-    
-    # Initialize video writer
-    video_path = os.path.join(save_dir, "beam_deviation_video.mp4")
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')  # MP4V codec
-    fps = 10  # Frames per second
-    video_writer = cv2.VideoWriter(video_path, fourcc, fps, (width, height))
-    
-    # Write initial image
-    video_writer.write(first_img)
-    
-    # Write all images to video
-    for img_path in image_paths:
-        img = cv2.imread(img_path)
-        video_writer.write(img)
-    
-    # Release video writer
-    video_writer.release()
-    print(f"Video saved as {video_path}")
+# Create videos from saved images for both cameras
+for cam_id, image_paths in [(1, image_paths_cam1), (2, image_paths_cam2)]:
+    if image_paths:
+        # Read first image to get dimensions
+        first_img = cv2.imread(image_paths[0])
+        height, width = first_img.shape[:2]
+        
+        # Initialize video writer
+        video_path = os.path.join(save_dir, f"beam_deviation_video_cam{cam_id}.mp4")
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')  # MP4V codec
+        fps = 10  # Frames per second
+        video_writer = cv2.VideoWriter(video_path, fourcc, fps, (width, height))
+        
+        # Write initial image
+        video_writer.write(cv2.imread(f"initial_image_cam{cam_id}.png"))
+        
+        # Write all images to video
+        for img_path in image_paths:
+            img = cv2.imread(img_path)
+            video_writer.write(img)
+        
+        # Release video writer
+        video_writer.release()
+        print(f"Video for camera {cam_id} saved as {video_path}")
 
-# Plotting
+# Plotting for both cameras
 plt.figure(figsize=(10, 6))
-plt.plot(times, x_deviations, color='blue', linestyle="-", label='X Deviation', alpha=0.3)
-plt.plot(times, y_deviations, color='red', linestyle="-", label='Y Deviation', alpha=0.3)
-plt.scatter(times, x_deviations, color='blue', label='X Deviation', alpha=0.5)
-plt.scatter(times, y_deviations, color='red', label='Y Deviation', alpha=0.5)
+plt.plot(times, x_deviations_cam1, color='blue', linestyle="-", label='Cam1 X Deviation', alpha=0.3)
+plt.plot(times, y_deviations_cam1, color='red', linestyle="-", label='Cam1 Y Deviation', alpha=0.3)
+plt.plot(times, x_deviations_cam2, color='cyan', linestyle="-", label='Cam2 X Deviation', alpha=0.3)
+plt.plot(times, y_deviations_cam2, color='magenta', linestyle="-", label='Cam2 Y Deviation', alpha=0.3)
+plt.scatter(times, x_deviations_cam1, color='blue', label='Cam1 X Deviation', alpha=0.5)
+plt.scatter(times, y_deviations_cam1, color='red', label='Cam1 Y Deviation', alpha=0.5)
+plt.scatter(times, x_deviations_cam2, color='cyan', label='Cam2 X Deviation', alpha=0.5)
+plt.scatter(times, y_deviations_cam2, color='magenta', label='Cam2 Y Deviation', alpha=0.5)
 plt.xlabel('Time (seconds)')
 plt.ylabel('Deviation (pixels)')
 plt.title('Beam Center Deviation Over Time (Pixels)')
@@ -136,15 +151,3 @@ plt.grid(True)
 plt.savefig(os.path.join(save_dir, 'beam_deviation_plot_pixels.png'))
 plt.show()
 
-plt.figure(figsize=(10, 6))
-plt.scatter(times, x_deviations_dist, color='blue', label='X Deviation', alpha=0.5)
-plt.scatter(times, y_deviations_dist, color='red', label='Y Deviation', alpha=0.5)
-plt.xlabel('Time (seconds)')
-plt.ylabel('Deviation (m)')
-plt.title('Beam Center Deviation Over Time (Distance)')
-plt.legend()
-plt.grid(True)
-plt.savefig(os.path.join(save_dir, 'beam_deviation_plot_distance.png'))
-plt.show()
-
-# [Rest of your code, including class definitions, remains unchanged]
