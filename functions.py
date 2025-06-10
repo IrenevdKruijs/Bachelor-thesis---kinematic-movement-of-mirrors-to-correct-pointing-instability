@@ -20,7 +20,7 @@ class camera_controller:
     """
     This function initializes the camera, works for basler cameras 
     """
-    def __init__(self,exposuretime=50,serial_number_cam1=22357092,serial_number_cam2=23572269):
+    def __init__(self,exposuretime=50,serial_number_cam2=22357092,serial_number_cam1=23572269):
     # Initialize the pylon transport layer factory
         tl_factory = pylon.TlFactory.GetInstance()
         self.devices = tl_factory.EnumerateDevices()

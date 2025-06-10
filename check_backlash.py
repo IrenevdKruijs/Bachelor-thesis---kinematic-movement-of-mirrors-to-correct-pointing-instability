@@ -89,8 +89,8 @@ def check_backlash(channel, direction, steprange, output_file, repeats=3):
                 initial_img = camera.capture_image(cam)
                 
                 # Save initial image with green dot
-                img_path = os.path.join(save_dir, f"initial_repeat_{rep:02d}_{direction}_step_{step}.png")
-                cv2.imwrite(img_path)
+                img_path = os.path.join(save_dir, f"initial_repeat_{rep:02d}_{direction}_step_{step*direction}.png")
+                cv2.imwrite(img_path,initial_img)
                 image_paths.append(img_path)
                 
                 # Move with step in steprange
@@ -109,8 +109,8 @@ def check_backlash(channel, direction, steprange, output_file, repeats=3):
                 elapsed_time_forward = current_time - start_time
                 forward_img = camera.capture_image(cam)
                 
-                img_path = os.path.join(save_dir, f"forward_repeat_{rep:02d}_step_{step}.png")
-                cv2.imwrite(img_path)
+                img_path = os.path.join(save_dir, f"forward_repeat_{rep:02d}_{direction}_step_{step}.png")
+                cv2.imwrite(img_path,forward_img)
                 image_paths.append(img_path)
                 
                 # Move back
@@ -128,13 +128,26 @@ def check_backlash(channel, direction, steprange, output_file, repeats=3):
                 elapsed_time_backward = current_time - start_time
                 backward_img = camera.capture_image(cam)
                 
-                img_path = os.path.join(save_dir, f"backward_repeat_{rep:02d}_step_{step}.png")
-                cv2.imwrite(img_path)
+                img_path = os.path.join(save_dir, f"backward_repeat_{rep:02d}_{direction}_step_{step}.png")
+                cv2.imwrite(img_path,backward_img)
                 image_paths.append(img_path)
                 
+                # Load images
+                initial_img_path = os.path.join(save_dir, f"initial_repeat_{rep:02d}_{direction}_step_{step}.png")
+                forward_img_path = os.path.join(save_dir, f"forward_repeat_{rep:02d}_{direction}_step_{step}.png")
+                backward_img_path = os.path.join(save_dir, f"backward_repeat_{rep:02d}_{direction}_step_{step}.png")    
+                   
+                if not all(os.path.exists(p) for p in [initial_img_path, forward_img_path, backward_img_path]):
+                        print(f"Skipping repeat {rep+1}, step {step}: One or more images missing")
+                        continue
+                    
+                initial_img = Image.open(initial_img_path)
+                forward_img = Image.open(forward_img_path)
+                backward_img = Image.open(backward_img_path)
+                
                 #define shift 
-                end_pos_x,end_pos_y = localize_beam_center(initial_img,forward_img)
-                residue_x,residue_y = localize_beam_center(initial_img,backward_img)
+                _,end_pos_x,end_pos_y = localize_beam_center(initial_img,forward_img)
+                _,residue_x,residue_y = localize_beam_center(initial_img,backward_img)
                 # Save to results
                 results.append((step, end_pos_x, end_pos_y,residue_x, residue_y))
                 writer.writerow([
@@ -198,10 +211,10 @@ def plot_calibration(input_file, channel, direction):
             reader = csv.reader(f)
             next(reader)  # Skip header
             for row in reader:
-                if len(row) != 10:
+                if len(row) != 7:
                     print(f"Warning: Skipping invalid row with {len(row)} columns: {row}")
                     continue
-                rep, step, end_pos_x, end_pos_y, residue_x, residue_y, end_pos_x_m, end_pos_y_m, residue_x_m, residue_y_m = map(float, row)
+                rep, step, current_time, end_pos_x, end_pos_y, residue_x, residue_y = map(float, row)
                 repeats.append(int(rep))
                 steps.append(step)
                 end_pos_x_values.append(end_pos_x)
@@ -297,8 +310,8 @@ def plot_calibration(input_file, channel, direction):
 if __name__ == "__main__":
     steprange = range(200, 1000, 100)
     repeats = 3
-    channels = [1]
-    directions = [1, -1]
+    channels = [4]
+    directions = [-1]
     
 for channel in channels:
     for direction in directions:
@@ -310,5 +323,5 @@ for channel in channels:
         
         # Run backlash measurement
         results = check_backlash(channel, direction, steprange, input_file, repeats)
-        plot_calibration(input_file,channel,direction,residue_plot_file,movement_plot_file)
+        plot_calibration(input_file,channel,direction)
         # Plot results
