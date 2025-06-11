@@ -90,30 +90,68 @@ import matplotlib.pyplot as plt
 from scipy import signal
 
 def localize_beam_center(initial_image, new_image):
-    print("Calculating beam center...")
-    # Convert PIL images to grayscale NumPy arrays
-    if isinstance(initial_image, Image.Image):
-        initial_image = np.array(initial_image.convert('L'), dtype=np.float32)
-    if isinstance(new_image, Image.Image):
-        new_image = np.array(new_image.convert('L'), dtype=np.float32)
+    """
+    Calculate the beam center shift between two images using cross-correlation.
+    Converts input images to grayscale before analysis.
+
+    Args:
+        initial_image: Input image (PIL Image or NumPy array, color or grayscale).
+        new_image: Input image (PIL Image or NumPy array, color or grayscale).
+
+    Returns:
+        tuple: (correlated_image, shift_x, shift_y) where correlated_image is the
+               cross-correlation result, and shift_x, shift_y are the pixel shifts.
     
+    Raises:
+        ValueError: If inputs are invalid or cannot be converted to grayscale.
+    """
+    print("Calculating beam center...")
+
+    # Helper function to convert any image to grayscale NumPy array
+    def to_grayscale(img):
+        if isinstance(img, Image.Image):
+            # Convert PIL image to grayscale
+            return np.array(img.convert('L'), dtype=np.float32)
+        elif isinstance(img, np.ndarray):
+            # Handle NumPy arrays
+            if len(img.shape) == 3 and img.shape[2] in [3, 4]:  # Color image (RGB/BGR/RGBA)
+                # Convert to grayscale using OpenCV (assumes BGR if from camera_controller)
+                import cv2
+                if img.shape[2] == 4:  # Handle RGBA
+                    img = img[:, :, :3]
+                gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+                return gray.astype(np.float32)
+            elif len(img.shape) == 2:  # Already grayscale
+                return img.astype(np.float32)
+            else:
+                raise ValueError(f"Invalid NumPy array shape: {img.shape}. Expected 2D or 3D with 3/4 channels.")
+        else:
+            raise ValueError(f"Unsupported image type: {type(img)}. Expected PIL Image or NumPy array.")
+
+    # Convert both images to grayscale
+    try:
+        initial_image = to_grayscale(initial_image)
+        new_image = to_grayscale(new_image)
+    except Exception as e:
+        raise ValueError(f"Error converting images to grayscale: {e}")
+
     # Verify input shapes
     print(f"Initial image shape: {initial_image.shape}")
     print(f"New image shape: {new_image.shape}")
-    
+
     # Ensure inputs are 2D (grayscale)
-    if len(initial_image.shape) > 2 or len(new_image.shape) > 2:
-        raise ValueError("Input images must be grayscale (2D arrays)")
-    
+    if len(initial_image.shape) != 2 or len(new_image.shape) != 2:
+        raise ValueError("Converted images must be grayscale (2D arrays)")
+
     # Compute cross-correlation
     correlated_image = signal.correlate(initial_image, new_image, method="fft")
     print(f"Correlated image shape: {correlated_image.shape}, type: {type(correlated_image)}")
-    
+
     # Find the coordinates of the maximum value
     max_idx = np.argmax(correlated_image)
     middle_y, middle_x = np.unravel_index(max_idx, correlated_image.shape)
     print(f"Beam shift found at (x, y): ({middle_x}, {middle_y})")
-    
+
     # Adjust coordinates to get the relative shift
     corr_height, corr_width = correlated_image.shape
     center_y, center_x = corr_height // 2, corr_width // 2
@@ -121,7 +159,7 @@ def localize_beam_center(initial_image, new_image):
     shift_y = middle_y - center_y
     print(f"Raw max coordinates: (x, y) = ({middle_x}, {middle_y})")
     print(f"Beam shift (pixels): (x, y) = ({shift_x}, {shift_y})")
-    
+
     return correlated_image, shift_x, shift_y  # Return image and coordinates
     
 class PiezoMotor:
@@ -273,39 +311,44 @@ class PiezoMotor:
             else: 
                 print("doing measurement without backlash correction")
                 if pos_chan1!= current_positions[0]:
-                    self.device.MoveTo(self.chan1, target_positions[0], 10000)
+                    self.device.MoveTo(self.chan1, target_positions[0], 100000)
                     max_steps = max(max_steps, abs(pos_chan1 - current_positions[0]))
 
                     # Dynamic wait time based on steps moved
                     wait_time = max_steps / self.steprate + 0.5 if max_steps > 0 else 1.0
                     time.sleep(wait_time)
-                
+                else:
+                    print("continuing measurement")
                 
                 
                 if pos_chan2!=current_positions[1]:
-                    self.device.MoveTo(self.chan2, target_positions[1], 10000)
+                    self.device.MoveTo(self.chan2, target_positions[1], 100000)
                     max_steps = max(max_steps, abs(pos_chan2))
 
                     # Dynamic wait time based on steps moved
                     wait_time = max_steps/self.steprate + 0.5 if max_steps > 0 else 1.0
                     time.sleep(wait_time)
-         
+                else: 
+                    print("continuing measurement")
 
                 if pos_chan3!=current_positions[2]:
-                    self.device.MoveTo(self.chan3, target_positions[2], 10000)
+                    self.device.MoveTo(self.chan3, target_positions[2], 100000)
                     max_steps = max(max_steps, abs(pos_chan3))
                 
                     wait_time = max_steps/self.steprate + 0.5 if max_steps > 0 else 1.0
                     time.sleep(wait_time)
+                else: 
+                    print("continuing measurement")
   
                 
                 if pos_chan4!=current_positions[3]: 
-                    self.device.MoveTo(self.chan4, target_positions[3], 10000)
+                    self.device.MoveTo(self.chan4, target_positions[3], 100000)
                     max_steps = max(max_steps, abs(pos_chan4))
                 
                     wait_time = max_steps/self.steprate + 0.5 if max_steps > 0 else 1.0
                     time.sleep(wait_time)
-        
+                else:
+                    print("continuing measurement")
                         
         except Exception as e:
             raise RuntimeError(f"Failed to move motor: {e}")
@@ -316,74 +359,7 @@ class PiezoMotor:
             # Stop Polling and Disconnect
             self.device.StopPolling()
             self.device.Disconnect()
-        # Extract parameters from options with default values
-
-def calibrate_mirror1_2D(amount_steps, stepsize, repeats,steprate,motor):
-    
-    all_shifts = []
-    cam = camera_controller(1000)
-    for h in range(repeats):
-        img = cam.capture_image()
-        x0, y0 = localize_beam_center(img)
-        current_step = 0   #initialize stap for correct data savings
-        shifts = []     #initialize shifts to save the shifts
-        for _ in range(amount_steps + 1):  # endpoint included
-            current_step += stepsize 
-            motor.move_steps(stepsize, stepsize, 0, 0,steprate)
-            img = cam.capture_image()
-            x,y= localize_beam_center(img)
-            dx = x - x0
-            dy = y - y0
-            shifts.append((current_step, dx, dy))
-            print(f"Steps: {current_step} | Δx = {dx}, Δy = {dy}")
-            # Save shifts of this repeat
-            with open(f"kalibratie_spiegel1_2D_herhaling_{h+1}.txt", "w") as f:
-                f.write("Motorstap\tDeltaX_pixels\tDeltaY_pixels\n")
-                for current_step, dx, dy in shifts:
-                    f.write(f"{current_step}\t{dx}\t{dy}\n")
-        all_shifts.append(shifts)
-        motor.move_steps(
-        (-(amount_steps*stepsize)),
-        (-(amount_steps*stepsize)),
-        0, 0, steprate
-        )
-    return all_shifts     
-
-
-def get_cached_calibration(amount_steps, stepsize, repeats, steprate, motor, cache_file="calibration_cache.json"):
-    """
-    Checks if calibration data is cached. If not, performs calibration and stores result.
-    Returns calibration data as a list of (step, dx, dy) tuples.
-    """
-    if os.path.exists(cache_file):
-        with open(cache_file, 'r') as f:
-            cache = json.load(f)
-    else:
-        cache = {}
-
-    key = f"{amount_steps}_{stepsize}_{repeats}_{steprate}"
-
-    if key in cache:
-        print(f"[CACHE] Using cached calibration for steprate = {steprate}")
-        return cache[key]
-    else:
-        print(f"[CALIBRATION] Performing calibration for steprate = {steprate}")
-        calibration_data = calibrate_mirror1_2D(amount_steps, stepsize, repeats, steprate,motor)
-        
-        # Convert to JSON-safe format
-        serializable_data = [
-            [[int(s), float(dx), float(dy)] for s, dx, dy in run]
-            for run in calibration_data
-        ]
-        cache[key] = serializable_data
-
-        with open(cache_file, 'w') as f:
-            json.dump(cache, f)
-
-        return serializable_data    
-
-import clr
-import time
+        # Extract parameters from options with default values    
 
 
 def flipmirror(position):
@@ -431,12 +407,27 @@ def flipmirror(position):
     except Exception as e:
         print(e)
         
+
+import os
 import csv
 import json
-import os
 from scipy.stats import linregress
+import numpy as np
 
 def create_slope_lookup(channels=[1, 2, 3, 4], directions=[1, -1], output_file="slope_lookup.json"):
+    """
+    Create a slope lookup table from backlash data CSV files for specified channels and directions.
+    Computes slopes for both x and y axes using linear regression on end positions.
+    Saves results to a JSON file.
+    
+    Args:
+        channels (list): List of channel numbers (1, 2, 3, 4).
+        directions (list): List of directions (1 for up, -1 for down).
+        output_file (str): Path to save the JSON output.
+    
+    Returns:
+        dict: Dictionary containing slopes and R² values for each channel and direction.
+    """
     slopes = {}
     for channel in channels:
         for direction in directions:
@@ -447,17 +438,27 @@ def create_slope_lookup(channels=[1, 2, 3, 4], directions=[1, -1], output_file="
                 continue
             
             steps = []
-            movements = []
+            end_pos_x = []
+            end_pos_y = []
             try:
                 with open(file_name, 'r', newline='') as f:
                     reader = csv.reader(f)
-                    next(reader)  # Skip header
+                    header = next(reader)  # Skip header
+                    if len(header) != 7:
+                        print(f"Error: {file_name} has unexpected column count ({len(header)}). Expected 7 columns.")
+                        continue
                     for row in reader:
-                        if len(row) != 3:
+                        if len(row) != 7:
+                            print(f"Warning: Skipping invalid row in {file_name} with {len(row)} columns.")
                             continue
-                        step, end_pos, _ = map(float, row)
-                        steps.append(step * direction)  # Adjust step sign
-                        movements.append(end_pos)
+                        try:
+                            rep, step, elapsed_time, pos_x, pos_y, res_x, res_y = map(float, row)
+                            steps.append(step)
+                            end_pos_x.append(pos_x)
+                            end_pos_y.append(pos_y)
+                        except ValueError as e:
+                            print(f"Warning: Skipping invalid row in {file_name}: {e}")
+                            continue
             except Exception as e:
                 print(f"Error reading {file_name}: {e}")
                 continue
@@ -466,23 +467,37 @@ def create_slope_lookup(channels=[1, 2, 3, 4], directions=[1, -1], output_file="
                 print(f"Insufficient data in {file_name} for linear regression.")
                 continue
             
-            # Compute slope using linear regression
-            slope, _, r_value, _, _ = linregress(steps, movements)
-            if r_value**2 < 0.8:
-                print(f"Warning: Low fit quality for chan{channel}_dir{direction} (R² = {r_value**2:.4f}).")
-            
+            # Compute slopes for x and y axes
             key = f"chan{channel}_dir{direction}"
-            slopes[key] = {
-                "slope": slope,  # pixels per step
-                "r_squared": r_value**2
-            }
-            print(f"Computed slope for {key}: {slope:.4f} pixels/step (R² = {r_value**2:.4f})")
-    
+            slopes[key] = {}
+            
+            # Linear regression for x-axis
+            if channel == 1 or channel ==3:
+                slope_x, _, r_value_x, _, _ = linregress(steps, end_pos_x)
+                r_squared_x = r_value_x**2
+                if r_squared_x < 0.8:
+                    print(f"Warning: Low fit quality for {key}_x (R² = {r_squared_x:.4f}).")
+                slopes[key]["slope_x"] = slope_x
+                slopes[key]["r_squared_x"] = r_squared_x
+                print(f"Computed slope for {key}_x: {slope_x:.4f} pixels/step (R² = {r_squared_x:.4f})")
+            else:
+                # Linear regression for y-axis
+                slope_y, _, r_value_y, _, _ = linregress(steps, end_pos_y)
+                r_squared_y = r_value_y**2
+                if r_squared_y < 0.8:
+                    print(f"Warning: Low fit quality for {key}_y (R² = {r_squared_y:.4f}).")
+                slopes[key]["slope_y"] = slope_y
+                slopes[key]["r_squared_y"] = r_squared_y
+                print(f"Computed slope for {key}_y: {slope_y:.4f} pixels/step (R² = {r_squared_y:.4f})")
+        
     # Save to JSON
-    with open(output_file, 'w') as f:
-        json.dump(slopes, f, indent=4)
+    try:
+        with open(output_file, 'w') as f:
+            json.dump(slopes, f, indent=4)
+        print(f"Slope lookup table saved to {output_file}")
+    except Exception as e:
+        print(f"Error saving {output_file}: {e}")
     
-    print(f"Slope lookup table saved to {output_file}")
     return slopes
 
 

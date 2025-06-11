@@ -22,18 +22,19 @@ except FileNotFoundError:
     exit()
 
 margin = 5  # ~27.5µm
-max_attempts = 1
-pixelsize = 5.5e-6  # meters
-A, B, C = 0.260, 0.440, 0.350  # meters
+max_attempts = 2
+pixelsize = 5.5*(10**-6)  # meters
+A, B, C = 0.255, 0.445, 0.345  # meters
 max_steps = 5000  # Cap to prevent excessive movements
 
 # Load slope lookup table
+# fix the except statement, probably not correct like this
 try:
     with open("slope_lookup.json", 'r') as f:
         slopes = json.load(f)
 except FileNotFoundError:
-    print("Error: slope_lookup.json not found. Run create_slope_lookup.py first.")
-    exit()
+    create_slope_lookup([1,2,3,4],[1,-1])
+    
 
 # Verify slopes and print for debugging
 for channel in [1, 2, 3, 4]:
@@ -42,11 +43,17 @@ for channel in [1, 2, 3, 4]:
         if key not in slopes:
             print(f"Error: No slope data for {key} in lookup table.")
             exit()
-        slope = slopes[key]["slope"]
-        print(f"Slope for {key}: {slope:.4f} pixels/step (R² = {slopes[key]['r_squared']:.4f})")
-        if slope < 0.05:
-            print(f"Warning: Slope for {key} is very small ({slope:.4f}). Consider re-running check_backlash.")
-
+        
+        # Determine whether to use slope_x or slope_y based on channel
+        slope_key = "slope_x" if channel in [1, 3] else "slope_y"
+        r_squared_key = "r_squared_x" if channel in [1, 3] else "r_squared_y"
+        
+        slope = slopes[key][slope_key]
+        r_squared = slopes[key][r_squared_key]
+        
+        print(f"Slope for {key}: {slope:.4f} pixels/step (R² = {r_squared:.4f})")
+        if abs(slope) < 0.05:  # Use abs() to handle negative slopes
+            print(f"Warning: Slope for {key} is below 0.05 pixels/step")
 # Setup camera and motor
 cam = camera_controller(exposuretime=50)
 motor = PiezoMotor(serial_number="97251304")
@@ -57,8 +64,14 @@ flipmirror(1)
 # Check if laser is already aligned
 image1 = cam.capture_image(1)
 image2 = cam.capture_image(2)
-x1_dev,y1_dev = localize_beam_center(target_img_cam1,image1)
-x2_dev,y2_dev = localize_beam_center(target_img_cam2,image2)
+
+correlated_img1,x1_dev,y1_dev = localize_beam_center(target_img_cam1,image1)
+correlated_img2,x2_dev,y2_dev = localize_beam_center(target_img_cam2,image2)
+
+plt.imshow(correlated_img1)
+plt.show()
+plt.imshow(correlated_img2)
+plt.show
 if (abs(x1_dev) <= margin and 
     abs(y1_dev) and 
     abs(x2_dev) <= margin and 
@@ -73,23 +86,30 @@ attempt = 0
 while attempt < max_attempts:
     # Capture current positions
     image1 = cam.capture_image(1)
-    dx1_pixel,dy1_pixel = localize_beam_center(target_img_cam1,image1)
+    _,dx1_pixel,dy1_pixel = localize_beam_center(target_img_cam1,image1)
     if dx1_pixel is None or dy1_pixel is None:
         print("Error: Could not determine beam center at camera 1.")
         break
-
+    #debugging
+    print(f"dx1_pixel = {dx1_pixel}")
+    plt.imshow(image1)
+    plt.show()
+    
     image2 = cam.capture_image(2)
-    dx2_pixel,dy2_pixel = localize_beam_center(target_img_cam2,image2)
+    _,dx2_pixel,dy2_pixel = localize_beam_center(target_img_cam2,image2)
     if dx2_pixel is None or dy2_pixel is None:
         print("Error: Could not determine beam center at camera 2.")
         break
-    
+    plt.imshow(image2)
+    plt.show
     #test numbers
-    dx1_pixel = 100
-    dx2_pixel = 125
-    dy1_pixel = 0
-    dy2_pixel = 0
+    dx1_pixel= -dx1_pixel
+    # dx1_pixel = 0
+    # dx2_pixel = 0
+    # dy1_pixel = 100
+    # dy2_pixel = 125
     print("dx and dy pixels are manipulated!")
+    print(f"dx1_pixel = {dx1_pixel}, dx2_pixel = {dx2_pixel}, dy1_pixel = {dy1_pixel}, dy2_pixel = {dy2_pixel}")
     print(f"Pixel deviations: dx1={dx1_pixel:.2f}, dy1={dy1_pixel:.2f}, dx2={dx2_pixel:.2f}, dy2={dy2_pixel:.2f}")
 
     # Check if all axes are within margin
@@ -104,21 +124,27 @@ while attempt < max_attempts:
     dx2_height = dx2_pixel * pixelsize
     dy2_height = dy2_pixel * pixelsize
 
+    print(f"dx1_height = {dx1_height}, dx2_height = {dx2_height}")
     # Calculate required mirror movements (in radians)
+    # required mirror movement is half of required beam movement, because when you turn the mirror with an angle alpha,
+    # the beam turns with angle 2*alpha. We call the optical angle alpha_o and the mechanical alpha alpha_m, which is 
+    # half
+    
     alpha_y = math.atan((dy2_height - dy1_height) / C)
     h_y = -(A + B + C) * math.tan(alpha_y) + dy2_height
-    MM1_y = alpha_y + math.tan(h_y / A)
-    MM2_y = -math.tan(h_y / A)
+    MM1_y = (alpha_y + math.atan(h_y / A))
+    MM2_y = (-math.atan(h_y / A))
 
     alpha_x = math.atan((dx2_height - dx1_height) / C)
     h_x = -(A + B + C) * math.tan(alpha_x) + dx2_height
-    MM1_x = alpha_x + math.tan(h_x / A)
-    MM2_x = -math.tan(h_x / A)
+    MM1_x = (alpha_x + math.atan(h_x / A))
+    MM2_x = (-math.atan(h_x / A))
     print(f"Angles (radians): MM1_x={MM1_x:.6f}, MM1_y={MM1_y:.6f}, MM2_x={MM2_x:.6f}, MM2_y={MM2_y:.6f}")
     
     # Convert angular movements to pixel movements
-    pixels_per_radian_1 = (B+C) / pixelsize # pixels/radian for mirror 1
-    pixels_per_radian_2 = (A+B + C) / pixelsize  # pixels/radian for mirror 2
+    pixels_per_radian_1 = (A+B+C)/pixelsize # pixels/radian for mirror 1, 
+    pixels_per_radian_2 = ((B+C))/pixelsize  # pixels/radian for mirror 2, 
+    
     MM2_x_pixels = MM2_x * pixels_per_radian_2
     MM2_y_pixels = MM2_y * pixels_per_radian_2
     MM1_x_pixels = MM1_x * pixels_per_radian_1
@@ -132,11 +158,13 @@ while attempt < max_attempts:
     dy2_dir = 1 if MM2_y_pixels > 0 else -1
 
     # Calculate steps using slopes, with cap
-    dx1_steps = int(abs(MM1_x_pixels)/ slopes[f"chan1_dir{dx1_dir}"]["slope"]) * dx1_dir if abs(dx1_pixel) > margin else 0
+    #All steps need a factor of -1 to send them in the right direction.
+    dx1_steps = -int(abs(MM1_x_pixels) / slopes[f"chan1_dir{dx1_dir}"]["slope_x"]) * dx1_dir if abs(MM1_x_pixels) > margin else 0
     print(dx1_steps)
-    dy1_steps = int(abs(MM1_y_pixels)/slopes[f"chan2_dir{dy1_dir}"]["slope"]) * dy1_dir if abs(dy1_pixel) > margin else 0
-    dx2_steps = int(abs(MM2_x_pixels) / slopes[f"chan3_dir{dx2_dir}"]["slope"]) * dx2_dir if abs(dx2_pixel) > margin else 0
-    dy2_steps = int(abs(MM2_y_pixels)/ slopes[f"chan4_dir{dy2_dir}"]["slope"]) * dy2_dir if abs(dy2_pixel) > margin else 0
+    # dx1_steps = int(MM1_x_pixels/slopes[f"chan1_dir{dx1_dir}"]["slope_x"])if abs(MM1_x_pixels) > margin else 0
+    dy1_steps = -int(abs(MM1_y_pixels)/slopes[f"chan2_dir{dy1_dir}"]["slope_y"]) * dy1_dir if abs(dy1_pixel) > margin else 0
+    dx2_steps =-int(abs(MM2_x_pixels) / slopes[f"chan3_dir{dx2_dir}"]["slope_x"]) * dx2_dir if abs(dx2_pixel) > margin else 0
+    dy2_steps = -int(abs(MM2_y_pixels)/ slopes[f"chan4_dir{dy2_dir}"]["slope_y"]) * dy2_dir if abs(dy2_pixel) > margin else 0
     print(f"Steps: dx1 steps={dx1_steps}, dy1 steps={dy1_steps}, dx2 steps={dx2_steps}, dy2 steps={dy2_steps}")
     
     # Cap steps to prevent excessive movement
@@ -153,12 +181,40 @@ while attempt < max_attempts:
 
     # Perform movement
     #tijdelijk, weghalen als ook met spiegel 2 werken
-
-    dy2_steps=0
-    dy1_steps = 0
+    # dy2_steps=0
+    # dy1_steps = 0
+    
+    
     motor.move_steps(dx1_steps, dy1_steps, dx2_steps, dy2_steps, backlash_correction=False)
     attempt += 1
-
+    
+    
+    # Capture current positions
+    image1 = cam.capture_image(1)
+    _,dx1_pixel_after,dy1_pixel_after = localize_beam_center(target_img_cam1,image1)
+    if dx1_pixel_after is None or dy1_pixel_after is None:
+        print("Error: Could not determine beam center at camera 1.")
+        break
+    #debugging
+    plt.imshow(image1)
+    plt.show()
+    
+    image2 = cam.capture_image(2)
+    _,dx2_pixel_after,dy2_pixel_after = localize_beam_center(target_img_cam2,image2)
+    if dx2_pixel is None or dy2_pixel is None:
+        print("Error: Could not determine beam center at camera 2.")
+        break
+    plt.imshow(image2)
+    plt.show
+    
+    dx1_pixel_after= -dx1_pixel_after
+    print(f"Final deviations: dx1_pixel = {dx1_pixel_after}, dx2_pixel = {dx2_pixel_after}, dy1_pixel = {dy1_pixel_after}, dy2_pixel = {dy2_pixel_after}")
+    print(f"improvement: dx1: {dx1_pixel} -> {dx1_pixel_after}, dx2: {dx2_pixel}-> {dx2_pixel_after}, dy1: {dy1_pixel}-> {dy1_pixel_after},dy2: {dy2_pixel}->{dy2_pixel_after}")
+    # Check if all axes are within margin
+    if abs(dx1_pixel_after) <= margin and abs(dy1_pixel_after) <= margin and abs(dx2_pixel_after) <= margin and abs(dy2_pixel_after) <= margin:
+        print(f"Success! Target reached within margin. Final deviation: dx1={dx1_pixel_after}, dy1={dy1_pixel_after}, dx2={dx2_pixel_after}, dy2={dy2_pixel_after}")
+        flipmirror(2)
+        break
 else:
     print("Failed to reach target within margin after maximum attempts.")
 
