@@ -26,7 +26,7 @@ max_attempts = 2
 pixelsize = 5.5*(10**-6)  # meters
 A, B, C = 0.255, 0.445, 0.345  # meters
 max_steps = 5000  # Cap to prevent excessive movements
-
+deviations = []
 # Load slope lookup table
 # fix the except statement, probably not correct like this
 try:
@@ -102,13 +102,7 @@ while attempt < max_attempts:
         break
     plt.imshow(image2)
     plt.show
-    #test numbers
-    dx1_pixel= -dx1_pixel
-    # dx1_pixel = 0
-    # dx2_pixel = 0
-    # dy1_pixel = 100
-    # dy2_pixel = 125
-    print("dx and dy pixels are manipulated!")
+    dx1_pixel = -1* dx1_pixel
     print(f"dx1_pixel = {dx1_pixel}, dx2_pixel = {dx2_pixel}, dy1_pixel = {dy1_pixel}, dy2_pixel = {dy2_pixel}")
     print(f"Pixel deviations: dx1={dx1_pixel:.2f}, dy1={dy1_pixel:.2f}, dx2={dx2_pixel:.2f}, dy2={dy2_pixel:.2f}")
 
@@ -117,6 +111,15 @@ while attempt < max_attempts:
         print(f"Success! Target reached within margin. Final deviation: dx1={dx1_pixel}, dy1={dy1_pixel}, dx2={dx2_pixel}, dy2={dy2_pixel}")
         flipmirror(2)
         break
+
+    # Store initial deviations for this attempt
+    deviations.append({
+        'attempt': attempt + 1,
+        'dx1_before': dx1_pixel,
+        'dy1_before': dy1_pixel,
+        'dx2_before': dx2_pixel,
+        'dy2_before': dy2_pixel
+    })
 
     # Convert pixel movements to meters
     dx1_height = dx1_pixel * pixelsize
@@ -131,24 +134,25 @@ while attempt < max_attempts:
     # half
     
     alpha_y = math.atan((dy2_height - dy1_height) / C)
-    h_y = -(A + B + C) * math.tan(alpha_y) + dy2_height
-    MM1_y = (alpha_y + math.atan(h_y / A))
-    MM2_y = (-math.atan(h_y / A))
+    h_y = -((A + B + C) * math.tan(alpha_y) - dy2_height)
+    beta_y = math.atan(h_y/A)
+    MM1_y = -(alpha_y + beta_y)
+    MM2_y = (beta_y)
 
     alpha_x = math.atan((dx2_height - dx1_height) / C)
-    h_x = -(A + B + C) * math.tan(alpha_x) + dx2_height
-    MM1_x = (alpha_x + math.atan(h_x / A))
-    MM2_x = (-math.atan(h_x / A))
+    h_x = -((A + B + C) * math.tan(alpha_x) - dx2_height)
+    beta_x = math.atan(h_x/A)
+    #if h is positive, beta moet negatief zijn, 
+    MM1_x = -(alpha_x + beta_x)
+    #we need to correct the opposite of the output so minus
+    MM2_x = (beta_x)
     print(f"Angles (radians): MM1_x={MM1_x:.6f}, MM1_y={MM1_y:.6f}, MM2_x={MM2_x:.6f}, MM2_y={MM2_y:.6f}")
     
     # Convert angular movements to pixel movements
-    pixels_per_radian_1 = (A+B+C)/pixelsize # pixels/radian for mirror 1, 
-    pixels_per_radian_2 = ((B+C))/pixelsize  # pixels/radian for mirror 2, 
-    
-    MM2_x_pixels = MM2_x * pixels_per_radian_2
-    MM2_y_pixels = MM2_y * pixels_per_radian_2
-    MM1_x_pixels = MM1_x * pixels_per_radian_1
-    MM1_y_pixels = MM1_y * pixels_per_radian_1
+    MM2_x_pixels = (MM2_x * (B+C))/pixelsize
+    MM2_y_pixels = (MM2_y *(B+C))/pixelsize
+    MM1_x_pixels = (MM1_x *(A+B+C))/pixelsize
+    MM1_y_pixels = (MM1_y *(A+B+C))/pixelsize
     print(f"Pixel movements: MM1_x={MM1_x_pixels:.2f}, MM1_y={MM1_y_pixels:.2f}, MM2_x={MM2_x_pixels:.2f}, MM2_y={MM2_y_pixels:.2f}")
 
     # Determine directions
@@ -159,12 +163,12 @@ while attempt < max_attempts:
 
     # Calculate steps using slopes, with cap
     #All steps need a factor of -1 to send them in the right direction.
-    dx1_steps = -int(abs(MM1_x_pixels) / slopes[f"chan1_dir{dx1_dir}"]["slope_x"]) * dx1_dir if abs(MM1_x_pixels) > margin else 0
+    dx1_steps = int(MM1_x_pixels / slopes[f"chan1_dir{dx1_dir}"]["slope_x"]) if abs(MM1_x_pixels) > margin else 0
     print(dx1_steps)
     # dx1_steps = int(MM1_x_pixels/slopes[f"chan1_dir{dx1_dir}"]["slope_x"])if abs(MM1_x_pixels) > margin else 0
-    dy1_steps = -int(abs(MM1_y_pixels)/slopes[f"chan2_dir{dy1_dir}"]["slope_y"]) * dy1_dir if abs(dy1_pixel) > margin else 0
-    dx2_steps =-int(abs(MM2_x_pixels) / slopes[f"chan3_dir{dx2_dir}"]["slope_x"]) * dx2_dir if abs(dx2_pixel) > margin else 0
-    dy2_steps = -int(abs(MM2_y_pixels)/ slopes[f"chan4_dir{dy2_dir}"]["slope_y"]) * dy2_dir if abs(dy2_pixel) > margin else 0
+    dy1_steps = int(MM1_y_pixels/slopes[f"chan2_dir{dy1_dir}"]["slope_y"])  if abs(dy1_pixel) > margin else 0
+    dx2_steps = int(MM2_x_pixels/ slopes[f"chan3_dir{dx2_dir}"]["slope_x"]) if abs(dx2_pixel) > margin else 0
+    dy2_steps = int(MM2_y_pixels/ slopes[f"chan4_dir{dy2_dir}"]["slope_y"]) if abs(dy2_pixel) > margin else 0
     print(f"Steps: dx1 steps={dx1_steps}, dy1 steps={dy1_steps}, dx2 steps={dx2_steps}, dy2 steps={dy2_steps}")
     
     # Cap steps to prevent excessive movement
@@ -207,7 +211,12 @@ while attempt < max_attempts:
     plt.imshow(image2)
     plt.show
     
-    dx1_pixel_after= -dx1_pixel_after
+        # Store final deviations for this attempt
+    deviations[-1]['dx1_after'] = dx1_pixel_after
+    deviations[-1]['dy1_after'] = dy1_pixel_after
+    deviations[-1]['dx2_after'] = dx2_pixel_after
+    deviations[-1]['dy2_after'] = dy2_pixel_after
+    
     print(f"Final deviations: dx1_pixel = {dx1_pixel_after}, dx2_pixel = {dx2_pixel_after}, dy1_pixel = {dy1_pixel_after}, dy2_pixel = {dy2_pixel_after}")
     print(f"improvement: dx1: {dx1_pixel} -> {dx1_pixel_after}, dx2: {dx2_pixel}-> {dx2_pixel_after}, dy1: {dy1_pixel}-> {dy1_pixel_after},dy2: {dy2_pixel}->{dy2_pixel_after}")
     # Check if all axes are within margin
@@ -217,6 +226,22 @@ while attempt < max_attempts:
         break
 else:
     print("Failed to reach target within margin after maximum attempts.")
+
+
+plt.figure(figsize=(8, 6))
+for dev in deviations:
+    attempt_num = dev['attempt']
+    plt.scatter(dev['dx1_before'], dev['dy1_before'], label=f'Attempt {attempt_num} Before', marker='o')
+    plt.scatter(dev['dx1_after'], dev['dy1_after'], label=f'Attempt {attempt_num} After', marker='x')
+plt.xlabel('X Pixel Deviation')
+plt.xlabel('Pixels')
+plt.ylabel('Pixels')
+plt.title(f'Deviation from target before and after using algorithm ')
+plt.grid(True)
+plt.legend()
+plt.savefig("deviation from target after algorithm2.png")
+plt.close()
+
 
 flipmirror(2)
 motor.shutdown()
