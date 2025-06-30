@@ -16,9 +16,9 @@ from Thorlabs.MotionControl.DeviceManagerCLI import *
 from Thorlabs.MotionControl.GenericMotorCLI import *
 from Thorlabs.MotionControl.KCube.InertialMotorCLI import *
 
-# Initialize motor and camera
+# # Initialize motor and camera
 motor = PiezoMotor()
-camera = camera_controller()
+camera = camera_controller(730,100)
 
     # Create directory for saving data
 current_time = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -71,17 +71,17 @@ def check_backlash(channel, direction, steprange, output_file, repeats=3):
                 init_step = 100 * direction
                 
                 if channel == 1:
-                    motor.move_steps(-init_step,0,0,0,False)
-                    motor.move_steps(init_step, 0, 0, 0, False)
+                    motor.move_steps(-init_step,0,0,0)
+                    motor.move_steps(init_step, 0, 0, 0)
                 elif channel == 2:
-                    motor.move_steps(0,-init_step,0,0,False)
-                    motor.move_steps(0, init_step, 0, 0, False)
+                    motor.move_steps(0,-init_step,0,0)
+                    motor.move_steps(0, init_step, 0, 0)
                 elif channel == 3:
-                    motor.move_steps(0,0,-init_step,0,False)
-                    motor.move_steps(0, 0, init_step, 0, False)
+                    motor.move_steps(0,0,-init_step,0)
+                    motor.move_steps(0, 0, init_step, 0)
                 else:
-                    motor.move_steps(0,0,0,-init_step,False)
-                    motor.move_steps(0, 0, 0, init_step, False)
+                    motor.move_steps(0,0,0,-init_step)
+                    motor.move_steps(0, 0, 0, init_step)
                 
                 # Define starting position
                 current_time = time.time()
@@ -96,13 +96,13 @@ def check_backlash(channel, direction, steprange, output_file, repeats=3):
                 # Move with step in steprange
                 step = step * direction
                 if channel == 1:
-                    motor.move_steps(step, 0, 0, 0, False)
+                    motor.move_steps(step, 0, 0, 0)
                 elif channel == 2:
-                    motor.move_steps(0, step, 0, 0, False)
+                    motor.move_steps(0, step, 0, 0)
                 elif channel == 3:
-                    motor.move_steps(0, 0, step, 0, False)
+                    motor.move_steps(0, 0, step, 0)
                 else:
-                    motor.move_steps(0, 0, 0, step, False)
+                    motor.move_steps(0, 0, 0, step)
                 
                 # Define ending position
                 current_time = time.time()
@@ -115,13 +115,13 @@ def check_backlash(channel, direction, steprange, output_file, repeats=3):
                 
                 # Move back
                 if channel == 1:
-                    motor.move_steps(int(-step), 0, 0, 0, False)
+                    motor.move_steps(int(-step), 0, 0, 0)
                 elif channel == 2:
-                    motor.move_steps(0, int(-step), 0, 0, False)
+                    motor.move_steps(0, int(-step), 0, 0)
                 elif channel == 3:
-                    motor.move_steps(0, 0, int(-step), 0, False)
+                    motor.move_steps(0, 0, int(-step), 0)
                 else:
-                    motor.move_steps(0, 0, 0, int(-step), False)
+                    motor.move_steps(0, 0, 0, int(-step))
                 
                 # Define position after moving back
                 current_time = time.time()
@@ -147,32 +147,16 @@ def check_backlash(channel, direction, steprange, output_file, repeats=3):
                 
                 #define shift 
                 _,end_pos_x,end_pos_y = localize_beam_center(initial_img,forward_img)
-                _,residue_x,residue_y = localize_beam_center(initial_img,backward_img)
                 # Save to results
-                results.append((step, end_pos_x, end_pos_y,residue_x, residue_y))
+                results.append((step, end_pos_x, end_pos_y))
                 writer.writerow([
                     rep + 1, step, elapsed_time_backward,
-                    end_pos_x, end_pos_y, residue_x , residue_y
+                    end_pos_x, end_pos_y
                 ])
-                print(f"Repeat {rep + 1}, Channel {channel}, Direction {dir_str}, Step: {step}, End position x: {end_pos_x}, End Position y: {end_pos_y}, residue x: {residue_x}, residuey: {residue_y}")
+                print(f"Repeat {rep + 1}, Channel {channel}, Direction {dir_str}, Step: {step}, End position x: {end_pos_x}, End Position y: {end_pos_y}")
                 
             all_results.append(results)
-    
-    # Create video from saved images
-    # if image_paths:
-    #     first_img = cv2.imread(image_paths[0])
-    #     height, width = first_img.shape[:2]
-    #     video_path = os.path.join(save_dir, f"backlash_video_chan{channel}_{dir_str}.mp4")
-    #     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    #     fps = 10
-    #     video_writer = cv2.VideoWriter(video_path, fourcc, fps, (width, height))
-        
-    #     for img_path in image_paths:
-    #         img = cv2.imread(img_path)
-    #         video_writer.write(img)
-        
-    #     video_writer.release()
-    #     print(f"Video saved as {video_path}")
+
     
         return all_results
 
@@ -186,8 +170,6 @@ def plot_calibration(input_file, channel, direction):
     dir_str = "up" if direction == 1 else "down"
     
     # Define output file names for X and Y components
-    residue_plot_file_x = os.path.join(save_dir, f"residue_backlash_chan{channel}_{dir_str}_x.png")
-    residue_plot_file_y = os.path.join(save_dir, f"residue_backlash_chan{channel}_{dir_str}_y.png")
     movement_plot_file_x = os.path.join(save_dir, f"movement_backlash_chan{channel}_{dir_str}_x.png")
     movement_plot_file_y = os.path.join(save_dir, f"movement_backlash_chan{channel}_{dir_str}_y.png")
     
@@ -203,8 +185,7 @@ def plot_calibration(input_file, channel, direction):
     repeats = []
     end_pos_x_values = []
     end_pos_y_values = []
-    residue_x_values = []
-    residue_y_values = []
+
     
     try:
         with open(input_file, 'r', newline='') as f:
@@ -214,13 +195,12 @@ def plot_calibration(input_file, channel, direction):
                 if len(row) != 7:
                     print(f"Warning: Skipping invalid row with {len(row)} columns: {row}")
                     continue
-                rep, step, current_time, end_pos_x, end_pos_y, residue_x, residue_y = map(float, row)
+                rep, step, current_time, end_pos_x, end_pos_y= map(float, row)
                 repeats.append(int(rep))
                 steps.append(step)
                 end_pos_x_values.append(end_pos_x)
                 end_pos_y_values.append(end_pos_y)
-                residue_x_values.append(residue_x)
-                residue_y_values.append(residue_y)
+
     except Exception as e:
         print(f"Error reading {input_file}: {e}")
         return
@@ -235,54 +215,24 @@ def plot_calibration(input_file, channel, direction):
     std_end_pos_x = []
     mean_end_pos_y = []
     std_end_pos_y = []
-    mean_residue_x = []
-    std_residue_x = []
-    mean_residue_y = []
-    std_residue_y = []
     
     for step in unique_steps:
         step_indices = [i for i, s in enumerate(steps) if s == step]
         step_end_pos_x = [end_pos_x_values[i] for i in step_indices]
         step_end_pos_y = [end_pos_y_values[i] for i in step_indices]
-        step_residue_x = [residue_x_values[i] for i in step_indices]
-        step_residue_y = [residue_y_values[i] for i in step_indices]
         mean_end_pos_x.append(np.mean(step_end_pos_x))
         std_end_pos_x.append(np.std(step_end_pos_x))
         mean_end_pos_y.append(np.mean(step_end_pos_y))
         std_end_pos_y.append(np.std(step_end_pos_y))
-        mean_residue_x.append(np.mean(step_residue_x))
-        std_residue_x.append(np.std(step_residue_x))
-        mean_residue_y.append(np.mean(step_residue_y))
-        std_residue_y.append(np.std(step_residue_y))
+        # creating a dictionary
+    font = {'size': 14}
+
+    # using rc function
+    plt.rc('font', **font)
     
-    # Plot 1: Residue X vs. Steps
+    # Plot 1: Movement X vs. Steps
     plt.figure(figsize=(8, 6))
-    plt.errorbar(unique_steps, mean_residue_x, yerr=std_residue_x, fmt='r-o', label='Mean Residue X', capsize=5)
-    plt.xlabel('Step Size')
-    plt.ylabel('Residue X (pixels)')
-    plt.title(f'Backlash Residue X for Channel {channel}, Direction {dir_str}')
-    plt.grid(True)
-    plt.legend()
-    plt.savefig(residue_plot_file_x)
-    plt.close()
-    print(f"Residue X plot saved to {residue_plot_file_x}")
-    
-    # Plot 2: Residue y vs. Steps
-    plt.figure(figsize=(8, 6))
-    plt.errorbar(unique_steps, mean_residue_y, yerr=std_residue_y, fmt='r-o', label='Mean Residue X', capsize=5)
-    plt.xlabel('Step Size')
-    plt.ylabel('Residue Y (pixels)')
-    plt.title(f'Backlash Residue Y for Channel {channel}, Direction {dir_str}')
-    plt.grid(True)
-    plt.legend()
-    plt.savefig(residue_plot_file_y)
-    plt.close()
-    print(f"Residue Y plot saved to {residue_plot_file_y}")
-    
-    
-    # Plot 3: Movement X vs. Steps
-    plt.figure(figsize=(8, 6))
-    plt.errorbar(unique_steps, mean_end_pos_x, yerr=std_end_pos_x, fmt='b-o', label='Mean End Pos X', capsize=5)
+    plt.errorbar(mean_end_pos_x, unique_steps, yerr=std_end_pos_x, fmt='b-o', label='Mean End Pos X', capsize=5)
     plt.xlabel('Step Size')
     plt.ylabel('End Position X (pixels)')
     plt.title(f'Ending Position X for Channel {channel}, Direction {dir_str}')
@@ -292,11 +242,11 @@ def plot_calibration(input_file, channel, direction):
     plt.close()
     print(f"Movement X plot saved to {movement_plot_file_x}")
     
-    # Plot 4: Movement Y vs. Steps
+    # Plot 2: Movement Y vs. Steps
     plt.figure(figsize=(8, 6))
-    plt.errorbar(unique_steps, mean_end_pos_y, yerr=std_end_pos_y, fmt='b-o', label='Mean End Pos X', capsize=5)
-    plt.xlabel('Step Size')
-    plt.ylabel('End Position Y (pixels)')
+    plt.errorbar(mean_end_pos_y, unique_steps, yerr=std_end_pos_y, fmt='b-o', label='Mean End Pos Y', capsize=5)
+    plt.ylabel('Number of Steps')
+    plt.xlabel('End Position Y (pixels)')
     plt.title(f'Ending Position Y for Channel {channel}, Direction {dir_str}')
     plt.grid(True)
     plt.legend()
@@ -310,7 +260,7 @@ def plot_calibration(input_file, channel, direction):
 if __name__ == "__main__":
     steprange = range(200, 1000, 100)
     repeats = 3
-    channels = [4]
+    channels = [2]
     directions = [-1]
     
 for channel in channels:
@@ -318,7 +268,6 @@ for channel in channels:
         # Define output file names with save_dir
         dir_str = "up" if direction == 1 else "down"
         input_file = os.path.join(save_dir, f"backlash_data_chan{channel}_{dir_str}.csv")
-        residue_plot_file = os.path.join(save_dir, f"residue_backlash_chan{channel}_{dir_str}.png")
         movement_plot_file = os.path.join(save_dir, f"movement_backlash_chan{channel}_{dir_str}.png")
         
         # Run backlash measurement

@@ -19,15 +19,36 @@ from System import Decimal, UInt32
 class camera_controller:
     """
     This function initializes the camera, works for basler cameras 
+    Args: wavelength - wavelength that the laser is used on
+          serial_number_cam2 - serial number of camera 2, so the correct camera is selected
+          seral_number_cam1 - serial number of camera 1, so the correct camera is selected
+          camera 1 is the camera closest to the beam splitter.
     """
-    def __init__(self,exposuretime=50,serial_number_cam2=22357092,serial_number_cam1=23572269):
-    # Initialize the pylon transport layer factory
+    def __init__(self,wavelength,serial_number_cam2=22357092,serial_number_cam1=23572269):
+        #initialize cameras
+        
+        #select correct exposure time for wavelength of the laser that is being used. When using a different laser and/or cameras, find the exposure time for these wavelengths
+        # at which the beam is not overexposed and change the following values accordingly:
+        wavelength_exposure = {
+            730: 100,
+            800: 42,
+            850: 60,
+            900: 125,
+            950: 235,
+            1000: 800,
+            1050: 3443,
+            1100: 13000
+        }
+        if wavelength not in wavelength_exposure:
+            raise ValueError(f"Unsupported wavelength: {wavelength}. Please enter 800, 850, 900, 950, 1000, 1050, or 1100.")
+        
+        exposuretime = wavelength_exposure[wavelength]
+
         tl_factory = pylon.TlFactory.GetInstance()
         self.devices = tl_factory.EnumerateDevices()
         if not self.devices:
             raise Exception("No Basler cameras found")
         
-       # self.device.StopGrabbing()
         for device in self.devices:
             print(f"{device.GetFriendlyName()}")
 
@@ -64,7 +85,10 @@ class camera_controller:
         Returns:
             image: the function returns the image with one frame 
         """
+        #select the correct camera that needs to be used for imaging
         camera = self.cam1 if camera_choice == 1 else self.cam2
+        
+        #take the image 
         try:
             if not camera.IsOpen():
                 camera.Open()
@@ -92,7 +116,8 @@ from scipy import signal
 def localize_beam_center(initial_image, new_image):
     """
     Calculate the beam center shift between two images using cross-correlation.
-    Converts input images to grayscale before analysis.
+    Converts input images to grayscale before analysis. The shift of new_image is calculated 
+    relative to the initial_image
 
     Args:
         initial_image: Input image (PIL Image or NumPy array, color or grayscale).
@@ -115,7 +140,7 @@ def localize_beam_center(initial_image, new_image):
         elif isinstance(img, np.ndarray):
             # Handle NumPy arrays
             if len(img.shape) == 3 and img.shape[2] in [3, 4]:  # Color image (RGB/BGR/RGBA)
-                # Convert to grayscale using OpenCV (assumes BGR if from camera_controller)
+                # Convert to grayscale
                 import cv2
                 if img.shape[2] == 4:  # Handle RGBA
                     img = img[:, :, :3]
@@ -165,13 +190,8 @@ def localize_beam_center(initial_image, new_image):
 class PiezoMotor:
     def __init__(self,serial_number="97251304"):
         """
-        function to move the piezomotors of the different mirrors using a Thorlabs KCube 
-        input: new_pos_chan: the new positions the motors have to go to for 4 different channels
-            steprate: the steprate at which the motor has to move
-            camera: the camera that is used for taking the picture
-        output: this function does not have an output
-    
-
+        function to initialize the piezomotor that steers two motorized mirrors using a Thorlabs KCube 
+        Args: serial number of piezomotor
         """
 
         DeviceManagerCLI.BuildDeviceList()
@@ -186,7 +206,7 @@ class PiezoMotor:
         self.device.Connect(self.serial_number)
         time.sleep(0.25)
 
-            # Ensure that the device settings have been initialized
+        # Ensure that the device settings have been initialized
         if not self.device.IsSettingsInitialized():
             self.device.WaitForSettingsInitialized(10000)  # 10 second timeout
             assert self.device.IsSettingsInitialized() is True
@@ -200,12 +220,12 @@ class PiezoMotor:
         time.sleep(0.25)  # Wait for device to enable
 
 
-            # Load any configuration settings needed by the controller/stage
+        # Load any configuration settings needed by the controller/stage
         config = self.device.GetInertialMotorConfiguration(self.serial_number)
         settings = ThorlabsInertialMotorSettings.GetSettings(config)
 
-            # Get parameters related to homing/zeroing/moving
-            # Step parameters for an inertial motor channel
+        # Get parameters related to homing/zeroing/moving
+        # Step parameters for an inertial motor channel
         self.chan1 = InertialMotorStatus.MotorChannels.Channel1
         self.chan2 = InertialMotorStatus.MotorChannels.Channel2
         self.chan3 = InertialMotorStatus.MotorChannels.Channel3
@@ -214,35 +234,36 @@ class PiezoMotor:
         for chan in [self.chan1, self.chan2, self.chan3, self.chan4]:
             settings.Drive.Channel(chan).StepRate = self.steprate
             settings.Drive.Channel(chan).StepAcceleration = 100000
+            
         # Send settings to the device
         self.device.SetSettings(settings, True, True)
 
-        # Home or Zero the device (if a motor/piezo)
+        # Zero the device 
         print("Zeroing device")
         self.device.SetPositionAs(self.chan1, 0)
         self.device.SetPositionAs(self.chan2, 0)
         self.device.SetPositionAs(self.chan3, 0)
         self.device.SetPositionAs(self.chan4, 0)
             
-    def move_steps(self,pos_chan1,pos_chan2,pos_chan3,pos_chan4,backlash_correction=True):
+    def move_steps(self,pos_chan1,pos_chan2,pos_chan3,pos_chan4):
 
         """
-        Move the motor to the specified absolute positions for each channel and capture beam position.
+        Move the motor to the specified absolute positions for each channel.
         
         Args:
             pos_chan1, pos_chan2, pos_chan3, pos_chan4: Absolute positions for channels 1-4.
         
-        Returns:
-            middle_x, middle_y: Coordinates of the beam center after movement.
-            
+
+        Raises:
+            RunTimeError: when the motor did not succeed in moving on time
         """
-                # Update movement history
-            # Load any configuration settings needed by the controller/stage
+        # Update movement history
+        # Load any configuration settings needed by the controller/stage
         config = self.device.GetInertialMotorConfiguration(self.serial_number)
         settings = ThorlabsInertialMotorSettings.GetSettings(config)
 
-            # Get parameters related to homing/zeroing/moving
-            # Step parameters for an inertial motor channel
+        # Get parameters related to homing/zeroing/moving
+        # Step parameters for an inertial motor channel
         self.chan1 = InertialMotorStatus.MotorChannels.Channel1
         self.chan2 = InertialMotorStatus.MotorChannels.Channel2
         self.chan3 = InertialMotorStatus.MotorChannels.Channel3
@@ -251,65 +272,24 @@ class PiezoMotor:
         for chan in [self.chan1, self.chan2, self.chan3, self.chan4]:
             settings.Drive.Channel(chan).StepRate = self.steprate
             settings.Drive.Channel(chan).StepAcceleration = 100000
+            
         # Send settings to the device
         self.device.SetSettings(settings, True, True)
         
         new_relative = [pos_chan1,pos_chan2,pos_chan3,pos_chan4]
         self.last_movement = tuple(new_relative)
         current_positions = list(self.current_position)
-                # Move to final target positions (absolute)
-        #dit moet pas na opnieuw positie hebben gemeten dus ws in move_steps
-
+        
+        # Move to final target positions (absolute)
         target_positions = [
             current_positions[i] + new_relative[i] if new_relative[i] != 0 else current_positions[i]
             for i in range(4)
         ]
-        # print(target_positions)
+        
         # Input positions are absolute, derived from current_position + relative steps
         max_steps = 0
 
         try:
-            if backlash_correction == True:
-                if pos_chan1 != current_positions[0] and current_positions[0]<target_positions[0]:
-                    self.device.MoveTo(self.chan1, int(target_positions[0]), 10000)
-                    max_steps = max(max_steps, abs(pos_chan1 - current_positions[0]))
-                elif current_positions[0]>target_positions[0] and pos_chan1 != current_positions[0]:
-                    self.device.MoveTo(self.chan1,int(target_positions[0]-200),10000)
-                    self.device.MoveTo(self.chan1,int(target_positions[0]),10000)
-
-                # Dynamic wait time based on steps moved
-                wait_time = max_steps / self.steprate + 0.5 if max_steps > 0 else 1.0
-                time.sleep(wait_time)
-                
-                if pos_chan2 != current_positions[1] and current_positions[1] < target_positions[1]:
-                    self.device.MoveTo(self.chan2, target_positions[1], 10000)
-                    max_steps = max(max_steps, abs(pos_chan2))
-                elif current_positions[1]>target_positions[1]: #correct backlash
-                    self.device.MoveTo(self.chan2,target_positions[1]-200,10000)
-                    self.device.MoveTo(self.chan2,target_positions[1],10000)
-
-                # Dynamic wait time based on steps moved
-                wait_time = max_steps/self.steprate + 0.5 if max_steps > 0 else 1.0
-                time.sleep(wait_time)
-
-                if pos_chan3 != current_positions[2] and current_positions[2] < target_positions[2]:
-                    self.device.MoveTo(self.chan3, int(target_positions[2]), 10000)
-                    max_steps = max(max_steps, abs(pos_chan3))
-                elif current_positions[2]>target_positions[2]:
-                    self.device.MoveTo(self.chan3,target_positions[2]-200,10000)
-                    self.device.MoveTo(self.chan3,target_positions[2],10000)
-                # Dynamic wait time based on steps moved
-                wait_time = max_steps/self.steprate + 0.5 if max_steps > 0 else 1.0
-                time.sleep(wait_time)
-                
-                if pos_chan4 != current_positions[3]  and current_positions[3] < target_positions[3]:
-                    self.device.MoveTo(self.chan4, target_positions[3], 10000)
-                    max_steps = max(max_steps, abs(pos_chan4))
-                elif current_positions[3]>target_positions[3]:
-                    self.device.MoveTo(self.chan4,target_positions[3]-200,10000)
-                    self.device.MoveTo(self.chan4,target_positions[3],10000)
-            else: 
-                print("doing measurement without backlash correction")
                 if pos_chan1!= current_positions[0]:
                     self.device.MoveTo(self.chan1, target_positions[0], 100000)
                     max_steps = max(max_steps, abs(pos_chan1 - current_positions[0]))
@@ -363,8 +343,10 @@ class PiezoMotor:
 
 
 def flipmirror(position):
-    # Uncomment this line if you are using a simulation
-    #SimulationManager.Instance.InitializeSimulations()
+    """ Function to move motorized flip mirror:
+        Args: position the flipmirror has to move to, with 1 being the upright position and 2 
+              being the downward position
+        """
 
     try:
         # Build device list. 
@@ -428,9 +410,13 @@ def create_slope_lookup(channels=[1, 2, 3, 4], directions=[1, -1], output_file="
     Returns:
         dict: Dictionary containing slopes and R² values for each channel and direction.
     """
+    # initialize dictionary
     slopes = {}
+    
+    # calculate slopes for each channel in each direction
     for channel in channels:
         for direction in directions:
+            #load calibration files
             direction_str = "up" if direction == 1 else "down"
             file_name = f"backlash_data_chan{channel}_{direction_str}.csv"
             if not os.path.exists(file_name):
@@ -441,6 +427,7 @@ def create_slope_lookup(channels=[1, 2, 3, 4], directions=[1, -1], output_file="
             end_pos_x = []
             end_pos_y = []
             try:
+                # load data from calibration files
                 with open(file_name, 'r', newline='') as f:
                     reader = csv.reader(f)
                     header = next(reader)  # Skip header
@@ -473,22 +460,22 @@ def create_slope_lookup(channels=[1, 2, 3, 4], directions=[1, -1], output_file="
             
             # Linear regression for x-axis
             if channel == 1 or channel ==3:
-                slope_x, _, r_value_x, _, _ = linregress(steps, end_pos_x)
+                slope_x, _, r_value_x, _, _ = linregress( end_pos_x,steps)
                 r_squared_x = r_value_x**2
                 if r_squared_x < 0.8:
                     print(f"Warning: Low fit quality for {key}_x (R² = {r_squared_x:.4f}).")
                 slopes[key]["slope_x"] = slope_x
                 slopes[key]["r_squared_x"] = r_squared_x
-                print(f"Computed slope for {key}_x: {slope_x:.4f} pixels/step (R² = {r_squared_x:.4f})")
+                print(f"Computed slope for {key}_x: {slope_x:.4f} steps/pixel (R² = {r_squared_x:.4f})")
             else:
                 # Linear regression for y-axis
-                slope_y, _, r_value_y, _, _ = linregress(steps, end_pos_y)
+                slope_y, _, r_value_y, _, _ = linregress(end_pos_y,steps)
                 r_squared_y = r_value_y**2
                 if r_squared_y < 0.8:
                     print(f"Warning: Low fit quality for {key}_y (R² = {r_squared_y:.4f}).")
                 slopes[key]["slope_y"] = slope_y
                 slopes[key]["r_squared_y"] = r_squared_y
-                print(f"Computed slope for {key}_y: {slope_y:.4f} pixels/step (R² = {r_squared_y:.4f})")
+                print(f"Computed slope for {key}_y: {slope_y:.4f} steps/pixel (R² = {r_squared_y:.4f})")
         
     # Save to JSON
     try:
