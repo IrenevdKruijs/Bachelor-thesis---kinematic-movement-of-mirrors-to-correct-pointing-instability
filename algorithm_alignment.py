@@ -4,6 +4,7 @@ import json
 from functions import *
 import cv2
 from datetime import datetime
+
 # Initialize camera and motor libraries
 clr.AddReference(r"C:\Program Files\Thorlabs\Kinesis\Thorlabs.MotionControl.DeviceManagerCLI.dll")
 clr.AddReference(r"C:\Program Files\Thorlabs\Kinesis\Thorlabs.MotionControl.GenericMotorCLI.dll")
@@ -26,17 +27,16 @@ wavelength = int(input("what wavelength are you using?:"))
 margin = 5  # ~27.5µm
 max_attempts = 3
 pixelsize = 5.5*(10**-6)  # meters, 
-A, B, C, D = 0.255, 0.260, 0.345, 0.87# meters, A is distance between mirror 1 and mirror 2, B = distance between mirror 2 and cam 1, C = distance between cam1 and cam2
+A, B, C = 0.255, 0.260, 0.345 # meters, A is distance between mirror 1 and mirror 2, B = distance between mirror 2 and cam 1, C = distance between cam1 and cam2
 deviations = [] #initialize deviations to save the deviations from the target position of the beam
 
 
 # Get current datetime
 current_datetime = datetime.now()
-# Output: YYYY-MM-DD HH:MM:SS.microseconds (e.g., 2025-06-18 20:13:45.123456)
+# Output: YYYY-MM-DD HH:MM:SS.microseconds
 
 # Format time only
 current_time = current_datetime.strftime("%H_%M_%S")
- # Output: HH:MM:SS (e.g., 20:13:45)
 
 # Load slope lookup table
 # TO DO: fix the except statement, probably not correct like this
@@ -110,11 +110,6 @@ while attempt < max_attempts:
         print("Error: Could not determine beam center at camera 2.")
         break
 
-
-    # The beam splitter swaps the direction of the deviation in the x-direction for camera 1 but not for camera 2.
-    # That is why it is needed to swap the sign of the dx1_pixel. 
-    # dev_x1_pixel = -1* dev_x1_pixel #Als het goed is is dit niet meer nodig want cam2 heeft nu ook een spiegel en is meegenomen in kalibratie
-    # dev_x2_pixel = -1*dev_x2_pixel
     print(f"dx1_pixel = {dev_x1_pixel}, dx2_pixel = {dev_x2_pixel}, dy1_pixel = {dev_y1_pixel}, dy2_pixel = {dev_y2_pixel}")
     print(f"Pixel deviations: dx1={dev_x1_pixel:.2f}, dy1={dev_y1_pixel:.2f}, dx2={dev_x2_pixel:.2f}, dy2={dev_y2_pixel:.2f}")
 
@@ -140,10 +135,6 @@ while attempt < max_attempts:
     dev_y2_meter = dev_y2_pixel * pixelsize
 
     # Calculate required mirror movements (in radians)
-    # required mirror movement is half of required beam movement, because when you turn the mirror with an angle alpha,
-    # the beam turns with angle 2*alpha. We call the optical angle alpha_o and the mechanical alpha alpha_m, which is 
-    # half
-    
     alpha_y = math.atan((dev_y2_meter - dev_y1_meter) / C)
     h_y = -((A + B + C)*math.tan(alpha_y) - dev_y2_meter)
     beta_y = math.atan(h_y/A)
@@ -155,26 +146,13 @@ while attempt < max_attempts:
     elif h_y < 0 and (dev_y1_meter <0 and dev_y2_meter <0) and dev_y1_meter < dev_y2_meter:
         movement_MM1_y = -(abs(alpha_y)-abs(beta_y))
         movement_MM2_y = -abs(beta_y)
-    # elif h_y <0 and (dev_y1_meter and dev_y2_meter>0) and dev_y1_meter > dev_y2_meter:
-    #     movement_MM1_y = -(abs(alpha_y)-abs(beta_y))
-    #     movement_MM2_y = -abs(beta_y)
     elif h_y < 0 and (dev_y1_meter > 0 or dev_y2_meter > 0):
         movement_MM1_y = -(abs(alpha_y)-abs(beta_y))
         movement_MM2_y = -abs(beta_y)
-        #lijkt te werken
     elif h_y > 0 and (dev_y1_meter < 0 or dev_y2_meter < 0):
         movement_MM1_y = -(abs(beta_y) - abs(alpha_y))
         movement_MM2_y = abs(beta_y)
-        # werkt niet!!!!!!
 
-    #deze situatie is verwerkt in de 'normale' situatie en dus overbodig
-    # elif h_y < 0 and (dev_y1_meter and dev_y2_meter < 0) and dev_y2_meter < dev_y1_meter:
-    #     movement_MM1_y = alpha_y+beta_y
-    #     movement_MM2_y = - beta_y
-    #deze situatie is dezelfde als de normale en dus eig overbodig
-    # elif h_y > 0 and (dev_y1_meter and dev_y2_meter > 0) and dev_y1_meter < dev_y2_meter:
-    #     movement_MM1_y = -(alpha_y+beta_y)
-    #     movement_MM2_y = beta_y
     else:
         if h_y > 0: 
             movement_MM2_y = abs(beta_y) 
@@ -186,8 +164,8 @@ while attempt < max_attempts:
     alpha_x = math.atan((dev_x2_meter - dev_x1_meter) / C)
     h_x = -((A + B + C)* math.tan(alpha_x) - dev_x2_meter)
     beta_x = math.atan(h_x/A)
+    
     #treat special cases correctly
-    # treat special cases correctly
     if h_x > 0 and dev_x1_meter > dev_x2_meter and (dev_x1_meter > 0 and dev_x2_meter > 0):
         movement_MM1_x = abs(alpha_x) - abs(beta_x)
         movement_MM2_x = abs(beta_x)
@@ -200,16 +178,9 @@ while attempt < max_attempts:
     elif h_x > 0 and (dev_x1_meter < 0 or dev_x2_meter < 0):
         movement_MM1_x = -(abs(beta_x)-abs(alpha_x))
         movement_MM2_x = abs(beta_x)
-        #lijkt te werken
-
-    # elif h_x < 0 and (dev_x1_meter and dev_x2_meter < 0) and dev_x2_meter < dev_x1_meter:
-    #     movement_MM1_x = alpha_x+beta_x
-    #     movement_MM2_x = - beta_x
     elif h_x > 0 and (dev_x1_meter > 0  and dev_x2_meter > 0) and (dev_x1_meter < dev_x2_meter):
          movement_MM1_x = -(alpha_x+beta_x)
          movement_MM2_x = beta_x
-         #Dit is toch de situatie bij Dx1=5 en Dx2=19?, waarom was dit uitgecomment?
-         #En als deze niet uitgecomment hoeft, moet hij bovenaan door de and and and
     else:
         if h_x > 0: 
             movement_MM2_x = (abs(beta_x))
@@ -218,7 +189,7 @@ while attempt < max_attempts:
             movement_MM2_x= -abs(beta_x)
             movement_MM1_x = (abs(alpha_x) + abs(beta_x)) # radians that MM1 has to move in y-direction#radians that MM2 has to move in y-direction
 
-  # radians that MM2 has to move in x-direction
+    # radians that MM2 has to move in x-direction
     print(f"Angles (radians): MM1_x={movement_MM1_x:.6f}, MM1_y={movement_MM1_y:.6f}, MM2_x={movement_MM2_x:.6f}, MM2_y={movement_MM2_y:.6f}")
     
     # Convert angular movements to pixel movements on camera 2, as the calibration was done with camera 2. This way,
@@ -248,7 +219,7 @@ while attempt < max_attempts:
         break
 
     # Perform calculated amount of steps   
-    motor.move_steps(dx1_steps, dy1_steps, dx2_steps, dy2_steps, backlash_correction=False)
+    motor.move_steps(dx1_steps, dy1_steps, dx2_steps, dy2_steps)
     time.sleep(2)
     attempt += 1
     
@@ -295,18 +266,4 @@ with open(csv_filename, mode='w', newline='', encoding='utf-8') as file:
     for dev in deviations:
         writer.writerow(dev)
 print(f"Deviations data saved to {csv_filename}")
-
-plt.figure(figsize=(8, 6))
-for dev in deviations:
-    attempt_num = dev['attempt']
-    plt.scatter(dev['dx1_before'], dev['dy1_before'], label=f'Attempt {attempt_num} Before', marker='o')
-    plt.scatter(dev['dx1_after'], dev['dy1_after'], label=f'Attempt {attempt_num} After', marker='x')
-plt.xlabel('X Pixel Deviation')
-plt.xlabel('Pixels')
-plt.ylabel('Pixels')
-plt.title(f'Deviation from target before and after using algorithm ')
-plt.grid(True)
-plt.legend()
-plt.savefig("deviation from target after algorithm2.png")
-plt.close()
 
