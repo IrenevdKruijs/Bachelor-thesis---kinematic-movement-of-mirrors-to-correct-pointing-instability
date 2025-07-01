@@ -1,3 +1,12 @@
+"""
+This script realigns a laser with two motorized mirrors using feedback from two cameras about the laser beam position. 
+For more information about how elements work, links to different sections of my report will be made when applicable. 
+This report can be found on essays.utwente.nl
+"""
+
+
+
+
 import clr
 import math
 import json
@@ -39,6 +48,7 @@ current_datetime = datetime.now()
 current_time = current_datetime.strftime("%H_%M_%S")
 
 # Load slope lookup table
+# How the calibration is done can be found in section 2.4.1 of the report.
 # TO DO: fix the except statement, probably not correct like this
 try:
     with open("slope_lookup.json", 'r') as f:
@@ -79,6 +89,7 @@ image1 = cam.capture_image(1)
 image2 = cam.capture_image(2)
 
 # Do a cross correlation of the target image and the current image of the beam to find the shift
+# How the correlation function works can be found in section 2.4.2 of the report
 correlated_img1,x1_dev,y1_dev = localize_beam_center(target_img_cam1,image1)
 correlated_img2,x2_dev,y2_dev = localize_beam_center(target_img_cam2,image2)
 
@@ -93,6 +104,7 @@ if (abs(x1_dev) <= margin and
     exit()
 
 # Alignment loop
+#The alignment loop is described in section 2.4.3 of the report.
 attempt = 0
 # Stop alignment after a maximum number of attempts
 while attempt < max_attempts:
