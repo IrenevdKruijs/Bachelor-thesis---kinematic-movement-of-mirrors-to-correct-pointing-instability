@@ -10,8 +10,8 @@ from functions import *
 import cv2
 import os
 
-exposuretime = 50
-cam = camera_controller(exposuretime)
+wavelength = 730
+cam = camera_controller(wavelength)
 
 img = cam.capture_image(1)
 filename = "target_pixels_cam1.png"
